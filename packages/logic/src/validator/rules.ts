@@ -15,7 +15,9 @@ import { sourceSchema, changeKindSchema, tierSchema } from '@donna/contracts';
  *
  * It is read with fs rather than `import rules.json` because the shared
  * tsconfig does not enable resolveJsonModule, and because a runtime read is
- * what makes "tune without a deploy" true.
+ * what makes "tune without a deploy" true. The path is resolved from
+ * import.meta.url, so a build step that emits JS must copy rules.json next to
+ * it; today the package is consumed from source, so there is nothing to copy.
  */
 
 /** One match clause. An omitted field means "don't care". All present fields must hold. */
@@ -23,6 +25,17 @@ export const matchClauseSchema = z.object({
   sources: z.array(sourceSchema).nonempty().optional(),
   kinds: z.array(changeKindSchema).nonempty().optional(),
   item_types: z.array(z.string().min(1)).nonempty().optional(),
+  /**
+   * An allowed-value list per item field, compared case-insensitively.
+   *
+   * The match key is (source, kind, item.type) and stays that way for all but
+   * one situation: a source whose single item type carries the direction of
+   * travel in a field. `executives` emits one `exec_move` type for both an
+   * appointment and a departure, and calling an appointment a "Senior officer
+   * departure" on screen is the kind of error a user spots in two seconds.
+   * Still data, still one line of the table, still checkable by eye.
+   */
+  item_fields: z.record(z.array(z.string().min(1)).nonempty()).optional(),
 });
 export type MatchClause = z.infer<typeof matchClauseSchema>;
 

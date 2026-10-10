@@ -185,8 +185,10 @@ export const DONNA_INDEXES: readonly IndexDef[] = [
   {
     collection: COLLECTIONS.collectorRuns,
     keys: { book_id: 1, run_id: 1, started_at: -1 },
-    // NOT unique: run_id is `run-<company_id>-<source>`, which repeats on every
-    // scheduled run of that pair. See the note in README of @donna/contracts/ids.
+    // NOT unique. @donna/contracts mints two forms: `runId()` is the alias
+    // `run-<company_id>-<source>` that Track C's Coverage.jsx builds to mean
+    // "the latest run of this pair", and `runIdAt()` is the unique-per-run
+    // form. A unique index here would reject the second run of any pair.
     options: { name: 'donna_runs_run_id' },
     why: 'Resolve a run_id to its newest document.',
   },

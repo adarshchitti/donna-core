@@ -21,26 +21,44 @@ export interface Classified {
   change: Change;
 }
 
-const matches = (clause: MatchClause, source: Source, kind: Change['kind'], itemType: string): boolean => {
+type Fields = Record<string, unknown>;
+
+const matches = (
+  clause: MatchClause,
+  source: Source,
+  kind: Change['kind'],
+  itemType: string,
+  fields: Fields,
+): boolean => {
   if (clause.sources && !clause.sources.includes(source)) return false;
   if (clause.kinds && !clause.kinds.includes(kind)) return false;
   if (clause.item_types && !clause.item_types.includes(itemType)) return false;
+  if (clause.item_fields) {
+    for (const [field, allowed] of Object.entries(clause.item_fields)) {
+      const value = fields[field];
+      if (value === undefined || value === null) return false;
+      const text = String(value).toLowerCase();
+      if (!allowed.some((a) => a.toLowerCase() === text)) return false;
+    }
+  }
   // An all-empty clause matches nothing; otherwise `match: []` on the fallback
   // rule would swallow every change before the real rules were consulted.
-  return Boolean(clause.sources ?? clause.kinds ?? clause.item_types);
+  return Boolean(clause.sources ?? clause.kinds ?? clause.item_types ?? clause.item_fields);
 };
 
 /**
- * Match on (source, kind, item.type). First rule in the table wins, so the
- * table's order is the precedence order -- tier 1 rules are listed first.
+ * Match on (source, kind, item.type), plus an item field where the table asks
+ * for one. First rule in the table wins, so the table's order is the
+ * precedence order -- tier 1 rules are listed first.
  */
 export const matchRule = (
   source: Source,
   kind: Change['kind'],
   itemType: string,
   rules: Rules = loadRules(),
+  fields: Fields = {},
 ): SignalTypeRule =>
-  rules.signal_types.find((r) => r.match.some((c) => matches(c, source, kind, itemType)))
+  rules.signal_types.find((r) => r.match.some((c) => matches(c, source, kind, itemType, fields)))
   ?? rules.fallback_signal_type;
 
 const fill = (template: string, company: Company, source: Source, day: string): string =>
@@ -69,7 +87,13 @@ export const classifyChange = (
   company: Company,
   rules: Rules = loadRules(),
 ): Classified => {
-  const rule = matchRule(change.source, change.kind, change.item.type, rules);
+  const rule = matchRule(
+    change.source,
+    change.kind,
+    change.item.type,
+    rules,
+    change.item as Record<string, unknown>,
+  );
   const day = toDateOnly(change.detected_at);
   return {
     rule,

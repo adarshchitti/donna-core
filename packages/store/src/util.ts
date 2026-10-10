@@ -12,6 +12,15 @@ import { MANUAL_REGISTRY_PREFIX } from './constants.js';
  * we write goes through here first.
  */
 export function toUtcInstant(value: string | Date): string {
+  // A date-only string in an instant field is a contract violation, not
+  // something to quietly widen: Track C's dateLabel() does
+  // new Date(v + 'T12:00:00Z'), so the two field families are not
+  // interchangeable in either direction and the symptom is "Invalid Date".
+  if (typeof value === 'string' && !value.includes('T')) {
+    throw new StoreError(
+      `Expected a full ISO instant (e.g. 2026-03-01T10:00:00.000Z), got ${JSON.stringify(value)}.`,
+    );
+  }
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) {
     throw new StoreError(`Not a parseable instant: ${JSON.stringify(value)}`);

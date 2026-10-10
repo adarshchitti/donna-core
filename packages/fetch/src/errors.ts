@@ -20,7 +20,9 @@ export type FetchErrorCode =
   | 'HTTP'
   | 'NETWORK'
   | 'TIMEOUT'
-  | 'CONFIG';
+  | 'CONFIG'
+  /** A 200 whose body says the zone cannot serve this target. See client.ts. */
+  | 'UNSUPPORTED_TARGET';
 
 export class FetchError extends Error {
   readonly name: string = 'FetchError';

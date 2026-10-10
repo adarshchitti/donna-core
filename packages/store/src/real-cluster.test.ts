@@ -24,7 +24,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
-import { isoNow } from '@donna/contracts';
+import { isoNow, latestSnapshotAlias, snapshotId } from '@donna/contracts';
 import { AUTO_RESOLVER, COLLECTIONS } from './index.js';
 import { DonnaStore } from './store.js';
 import {
@@ -110,16 +110,17 @@ describe.skipIf(!enabled)('real cluster smoke test', () => {
     await store.setCoverage(TEST_COMPANY, aCoverage({ checked: ['registry'], failed: [] }));
     await store.setResolution(TEST_COMPANY, { confidence: 0.99, reason: 'smoke test' });
 
-    const snapshotIdValue = `snap-${TEST_COMPANY}-registry`;
+    const fetchedAt = isoNow();
+    const snapshotIdValue = snapshotId(TEST_COMPANY, 'registry', fetchedAt);
     const snapshot = await store.insertSnapshot(aSnapshotInput({
       snapshot_id: snapshotIdValue, company_id: TEST_COMPANY,
-      run_id: `run-${TEST_COMPANY}-registry`, fetched_at: isoNow(),
+      run_id: `run-${TEST_COMPANY}-registry`, fetched_at: fetchedAt,
     }));
     expect(snapshot.inserted).toBe(true);
     // Immutability holds against the real unique index too.
     expect((await store.insertSnapshot(aSnapshotInput({
       snapshot_id: snapshotIdValue, company_id: TEST_COMPANY,
-      run_id: `run-${TEST_COMPANY}-registry`, fetched_at: isoNow(),
+      run_id: `run-${TEST_COMPANY}-registry`, fetched_at: fetchedAt,
     }))).inserted).toBe(false);
 
     const signal = await store.upsertSignal(aSignalInput({
@@ -154,6 +155,9 @@ describe.skipIf(!enabled)('real cluster smoke test', () => {
     expect(stored?.resolution.resolved_by).toBe(AUTO_RESOLVER);
 
     expect((await store.latestOkSnapshot(TEST_COMPANY, 'registry'))?.snapshot_id)
+      .toBe(snapshotIdValue);
+    // Track C's client-minted evidence link must resolve.
+    expect((await store.getEvidence(latestSnapshotAlias(TEST_COMPANY, 'registry')))?.snapshot_id)
       .toBe(snapshotIdValue);
     expect((await store.getSignal(signal.signal_id))?.evidence).toHaveLength(1);
     expect((await store.getCluster(`cl-${TEST_COMPANY}`))?.company_id).toBe(TEST_COMPANY);

@@ -22,6 +22,7 @@ export {
   type SerpEngine,
   type SerpOptions,
   type SerpPage,
+  type SerpPayloadKind,
   type SerpResult,
 } from './types.js';
 
@@ -50,7 +51,18 @@ export {
   defaultCassetteDir,
 } from './cassette.js';
 
-export { parseSerpResults, serpUrl } from './serp.js';
+export {
+  DEFAULT_GL,
+  DEFAULT_HL,
+  parseSerpHtml,
+  parseSerpJson,
+  parseSerpResults,
+  serpJsonSchema,
+  serpOrganicSchema,
+  serpPayloadKind,
+  serpUrl,
+  type SerpJson,
+} from './serp.js';
 
 export {
   BrightDataFetcher,

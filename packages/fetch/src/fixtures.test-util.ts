@@ -17,4 +17,14 @@ export const pinnedNow = (): Date => new Date(`${PINNED_DAY}T09:15:00.000Z`);
 export const otherDayNow = (): Date => new Date('2026-10-11T09:15:00.000Z');
 
 export const RECORDED_PAGE_URL = 'https://registry.example.gov/company/0100-hartwell-logistics';
-export const RECORDED_SERP_QUERY = '"Hartwell Logistics" layoffs';
+
+/** A hand-written HTML SERP sample: the fallback payload shape. */
+export const RECORDED_SERP_HTML_QUERY = '"Hartwell Logistics" layoffs';
+
+/**
+ * A VERBATIM live response from the real SERP zone (`serp_api1`), recorded once
+ * on the pinned day. This is the primary payload shape -- parsed JSON -- and
+ * the only ground truth we have for it, so it is kept exactly as returned.
+ */
+export const RECORDED_SERP_JSON_QUERY = '"Bob Evans Farms" WARN notice layoffs';
+export const RECORDED_SERP_JSON_OPTS = { num: 5 } as const;

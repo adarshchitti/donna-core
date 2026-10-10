@@ -35,24 +35,46 @@
  * ---------------------------------------------------------------------------
  */
 
-/** Ids look like `sig-...`, `dl-...`; brackets are the citation marker. */
-const MARKER_RE = /\[([A-Za-z0-9][A-Za-z0-9_.:-]{0,99})\]/g;
+/**
+ * A citation marker is a bracketed list of ids: `[sig-001]` or
+ * `[sig-001, dl-acme-1]`. The multi-id form is here because a real haiku-4-5
+ * draft used it on the first live call -- a parser that only accepted one id
+ * per bracket read those sentences as uncited and stripped two correctly cited
+ * sentences out of a good briefing. The rule did not need loosening; the
+ * tokenizer did.
+ */
+const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/;
+const BRACKET_RE = /\[([^\[\]\n]{1,300})\]/g;
 
-/** True when a chunk is nothing but markers and punctuation. */
-const MARKERS_ONLY_RE = /^[\s.,;:]*(?:\[[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}\][\s.,;:]*)+$/;
+/** Ids inside one bracket, or [] if the bracket held something else entirely. */
+const idsInBracket = (body: string): string[] =>
+  body
+    .split(/[,;]+/)
+    .map((part) => part.trim())
+    .filter((part) => ID_RE.test(part));
+
+/** Markers sitting at the head of a chunk, i.e. just after the previous full stop. */
+const LEADING_BRACKETS_RE = /^((?:\s*\[[^\[\]\n]{1,300}\])+)\s*/;
 
 export const extractMarkers = (text: string): string[] => {
   const out: string[] = [];
-  const re = new RegExp(MARKER_RE.source, MARKER_RE.flags);
+  const re = new RegExp(BRACKET_RE.source, BRACKET_RE.flags);
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) if (m[1] !== undefined) out.push(m[1]);
+  while ((m = re.exec(text)) !== null) {
+    if (m[1] !== undefined) out.push(...idsInBracket(m[1]));
+  }
   return out;
 };
 
-/** Removes the markers and tidies the whitespace they leave behind. */
+/**
+ * Removes citation markers and tidies the whitespace they leave behind.
+ * A bracket that holds no id at all is prose, not a citation, so it stays.
+ */
 export const stripMarkers = (text: string): string =>
   text
-    .replace(new RegExp(MARKER_RE.source, MARKER_RE.flags), '')
+    .replace(new RegExp(BRACKET_RE.source, BRACKET_RE.flags), (whole, body: string) =>
+      idsInBracket(body).length > 0 ? '' : whole,
+    )
     .replace(/\s+([.,;:!?])/g, '$1')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
@@ -67,23 +89,40 @@ export interface Sentence {
 /**
  * Splits on sentence-final punctuation followed by whitespace.
  *
- * One deliberate repair: a chunk that is nothing but markers ("[sig-001].") is
- * merged back into the previous sentence, because models write both
- * "...2026 [sig-001]." and "...2026. [sig-001]" and the citation means the same
- * thing in both. Without this, half of all correctly-cited drafts would be
- * stripped.
+ * One deliberate repair. The prompt states the convention: the marker goes at
+ * the END of the sentence it backs. Models write both "...2026 [sig-001]." and
+ * "...2026. [sig-001]", and the citation means the same thing in both, so
+ * markers found at the HEAD of a chunk are moved back onto the previous
+ * sentence. Without this repair, about half of all correctly-cited drafts would
+ * have their first sentence stripped as uncited.
+ *
+ * The transfer is one-directional on purpose -- a leading marker backs the
+ * PREVIOUS sentence, never the one it precedes. That keeps the stated
+ * convention the only convention, instead of letting a marker back whichever
+ * neighbour happens to need it.
  */
 export const splitSentences = (text: string): Sentence[] => {
   const chunks = text
     .split(/(?<=[.!?])\s+/)
     .map((c) => c.trim())
     .filter((c) => c !== '');
+
   const out: string[] = [];
-  for (const c of chunks) {
-    const prev = out[out.length - 1];
-    if (MARKERS_ONLY_RE.test(c) && prev !== undefined) out[out.length - 1] = `${prev} ${c}`;
-    else out.push(c);
+  for (const chunk of chunks) {
+    let rest = chunk;
+    const prev = out.length - 1;
+    if (prev >= 0) {
+      const lead = LEADING_BRACKETS_RE.exec(rest);
+      if (lead?.[1] !== undefined) {
+        out[prev] = `${out[prev] as string} ${lead[1].trim()}`;
+        rest = rest.slice(lead[0].length).trim();
+      }
+    }
+    // A chunk left with only punctuation ("." after its marker moved) carries
+    // nothing and would otherwise rejoin the text as a stray full stop.
+    if (/[A-Za-z0-9]/.test(rest)) out.push(rest);
   }
+
   return out.map((raw) => ({ raw, markers: extractMarkers(raw) }));
 };
 

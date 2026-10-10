@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@donna/contracts": "*", "zod": "^3.24.1" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@daytonaio/sdk": "^0.223.1",
+    "@donna/contracts": "*",
+    "@donna/fetch": "*",
+    "@donna/logic": "*",
+    "@donna/store": "*",
+    "zod": "^3.24.1"
+  }
 }

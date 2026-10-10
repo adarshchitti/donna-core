@@ -376,6 +376,84 @@ describe('request shape', () => {
   });
 });
 
+describe('a 200 that is really a refusal', () => {
+  // Verbatim body from a live call putting an Ohio registry URL through the
+  // SERP zone. HTTP 200, so nothing about the status reveals the problem.
+  const REFUSAL =
+    "This target URL isn't supported with SERP API, " +
+    'use the Web Unlocker product for targeting this URL';
+
+  it('surfaces it as an UNSUPPORTED_TARGET error instead of an empty snapshot', async () => {
+    const net = stubFetch([{ status: 200, body: REFUSAL }]);
+    const client = createBrightDataClient({
+      mode: 'live',
+      env: BARE_ENV,
+      store: new MemoryCassetteStore(),
+      now: pinnedNow,
+      fetchImpl: net.impl,
+      ...CREDS,
+    });
+
+    const err = await client
+      .unlocker('https://businesssearch.ohiosos.gov/')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(FetchError);
+    expect((err as FetchError).code).toBe('UNSUPPORTED_TARGET');
+    expect((err as FetchError).url).toBe('https://businesssearch.ohiosos.gov/');
+    expect((err as Error).message).toContain('https://businesssearch.ohiosos.gov/');
+    expect((err as Error).message).toContain('BRIGHTDATA_UNLOCKER_ZONE');
+    // The request was billed, so the running total stays honest.
+    expect(client.creditsSpent()).toBe(1);
+  });
+
+  it('never records it as a cassette', async () => {
+    const dir = await tempDir();
+    const net = stubFetch([{ status: 200, body: REFUSAL }]);
+    const client = createBrightDataClient({
+      mode: 'record',
+      env: BARE_ENV,
+      cassetteDir: dir,
+      now: pinnedNow,
+      fetchImpl: net.impl,
+      ...CREDS,
+    });
+
+    await expect(client.unlocker('https://businesssearch.ohiosos.gov/')).rejects.toBeInstanceOf(
+      FetchError,
+    );
+    // A 200 full of an error message would otherwise become a permanent,
+    // convincing-looking fixture.
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it('rejects a cached refusal too, so a bad cassette cannot be replayed as a page', async () => {
+    const store = new MemoryCassetteStore();
+    const url = 'https://businesssearch.ohiosos.gov/';
+    const key = fetchCacheKey(url, PINNED_DAY);
+    await store.put({
+      key,
+      url,
+      day: PINNED_DAY,
+      zone: 'serp_api1',
+      status: 200,
+      fetched_at: `${PINNED_DAY}T09:15:00.000Z`,
+      body: REFUSAL,
+    });
+    const client = createBrightDataClient({
+      mode: 'replay',
+      env: BARE_ENV,
+      store,
+      now: pinnedNow,
+      fetchImpl: forbiddenFetch().impl,
+    });
+
+    const err = await client.unlocker(url).catch((e: unknown) => e);
+    expect((err as FetchError).code).toBe('UNSUPPORTED_TARGET');
+    expect(client.creditsSpent()).toBe(0);
+  });
+});
+
 describe('robustness', () => {
   const noWait = async (): Promise<void> => {};
 

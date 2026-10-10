@@ -42,19 +42,46 @@ export type SerpEngine = 'google' | 'bing';
 export interface SerpOptions {
   engine?: SerpEngine;
   num?: number;
+  /**
+   * Geo and language. These MUST travel as URL query params: a `country` field
+   * in the Bright Data request body is silently IGNORED -- a live call with
+   * `country: "us"` in the body came back `country_code: "AR"`, and with no
+   * `gl` at all it defaulted to `"EG"`. Every company we watch is American, so
+   * an unpinned geo quietly returns the wrong internet.
+   */
+  gl?: string;
+  hl?: string;
 }
 
-/** One organic result parsed out of SERP HTML. `rank` is 1-based. */
+/**
+ * One organic result, from either payload shape. `rank` is 1-based and is our
+ * own numbering: it is assigned after filtering and dedupe so it always means
+ * "position in the list we returned", whether the source was the SERP API's
+ * `organic[]` or raw HTML.
+ */
 export interface SerpResult {
   url: string;
   title: string;
   rank: number;
+  /** The snippet, when the payload carries one (JSON always does). */
+  description?: string;
 }
 
 /** A SERP fetch plus its parsed organic results. */
 export interface SerpPage extends FetchResult {
   results: SerpResult[];
+  /** Which payload shape the results were extracted from. */
+  payload: SerpPayloadKind;
 }
+
+/**
+ * The SERP zone returns PARSED JSON by default, even with `format: "raw"`;
+ * `data_format: "html"` would return the real page instead. We standardise on
+ * JSON -- one live query measured 6,098 bytes as JSON against 1,048,229 bytes
+ * as HTML, a 170x difference in what we store, hash and diff. HTML parsing is
+ * kept as a fallback for anything that arrives as markup anyway.
+ */
+export type SerpPayloadKind = 'json' | 'html';
 
 export interface BrightDataClient {
   /** Web Unlocker: fetch a target page through BRIGHTDATA_UNLOCKER_ZONE. */

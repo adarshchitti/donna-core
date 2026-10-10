@@ -23,7 +23,7 @@ import {
   type Env,
 } from './config.js';
 import { CassetteMissError, CreditCeilingError, FetchError } from './errors.js';
-import { parseSerpResults, serpUrl } from './serp.js';
+import { parseSerpResults, serpPayloadKind, serpUrl } from './serp.js';
 import type {
   BrightDataClient,
   CassetteStore,
@@ -64,6 +64,15 @@ export interface BrightDataClientOptions {
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
 }
+
+/**
+ * The SERP zone answers a non-search target with HTTP **200** and this body.
+ * A 200 is not an error status, so without an explicit guard it would sail
+ * through as a successful fetch and become an empty snapshot -- a silent
+ * coverage hole, which is the one failure mode this system is built to avoid.
+ * Verified live against `serp_api1` with an Ohio registry URL.
+ */
+const SERP_ZONE_REJECTION = "isn't supported with SERP API";
 
 /** 429 and 5xx are worth another try; any other 4xx is our fault, not theirs. */
 const isTransientStatus = (status: number): boolean => status === 429 || status >= 500;
@@ -130,7 +139,12 @@ export class BrightDataFetcher implements BrightDataClient {
   }
 
   async unlocker(url: string): Promise<FetchResult> {
-    return this.through(url, () => this.requireZone(this.unlockerZone, 'BRIGHTDATA_UNLOCKER_ZONE', url));
+    const res = await this.through(
+      url,
+      () => this.requireZone(this.unlockerZone, 'BRIGHTDATA_UNLOCKER_ZONE', url),
+    );
+    this.assertNotZoneRejection(res, url);
+    return res;
   }
 
   async serp(query: string, opts: SerpOptions = {}): Promise<FetchResult> {
@@ -144,7 +158,30 @@ export class BrightDataFetcher implements BrightDataClient {
    */
   async serpResults(query: string, opts: SerpOptions = {}): Promise<SerpPage> {
     const result = await this.serp(query, opts);
-    return { ...result, results: parseSerpResults(result.body) };
+    return {
+      ...result,
+      results: parseSerpResults(result.body),
+      payload: serpPayloadKind(result.body),
+    };
+  }
+
+  /**
+   * A 200 that is really a refusal. Checked on the returned body rather than
+   * inside the request loop so it catches a cached one too: a cassette holding
+   * this text is junk and must not be replayed as a real page.
+   *
+   * The credit is already spent by the time we get here -- Bright Data billed
+   * the request -- so `creditsSpent()` stays honest and only the cassette write
+   * is skipped.
+   */
+  private assertNotZoneRejection(res: FetchResult, url: string): void {
+    if (!res.body.includes(SERP_ZONE_REJECTION)) return;
+    throw new FetchError(
+      `Bright Data refused ${url}: the configured zone cannot fetch ordinary pages ` +
+        `(it answered HTTP 200 with "${res.body.trim().slice(0, 160)}"). ` +
+        `BRIGHTDATA_UNLOCKER_ZONE must name a Web Unlocker zone, not a SERP zone.`,
+      { code: 'UNSUPPORTED_TARGET', url, mode: this.mode },
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -194,7 +231,9 @@ export class BrightDataFetcher implements BrightDataClient {
     this.spent += CREDITS_PER_REQUEST;
     const fetched_at = isoNow(this.now());
 
-    if (this.writeThrough) {
+    // Never record a zone refusal: it is a 200, so it would otherwise become a
+    // permanent, convincing-looking cassette full of an error message.
+    if (this.writeThrough && !body.includes(SERP_ZONE_REJECTION)) {
       await this.store.put({ key, url, day, zone, status, fetched_at, body });
     }
 

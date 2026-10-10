@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MongoClient, type Db } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { isoNow, signalId } from '@donna/contracts';
+import { isoNow, latestSnapshotAlias, runId, signalId, snapshotId } from '@donna/contracts';
 import { AUTO_RESOLVER, DONNA_INDEXES } from './index.js';
 import { DonnaStore } from './store.js';
 import { StoreError, StoreValidationError } from './validate.js';
@@ -614,6 +614,59 @@ describe('latestOkSnapshot', () => {
     expect((await store.latestOkSnapshot('c1', 'registry'))?.snapshot_id).toBe('s-reg');
     expect((await store.latestOkSnapshot('c1', 'news'))?.snapshot_id).toBe('s-news');
     expect(await store.latestOkSnapshot('c2', 'registry')).toBeNull();
+  });
+});
+
+// ===========================================================================
+// evidence links: Track C mints ids client-side, so aliases must resolve
+// ===========================================================================
+describe('evidence link resolution', () => {
+  it('resolves an exact snapshot id', async () => {
+    const id = snapshotId('c1', 'registry', '2026-03-01T10:00:00.000Z');
+    await store.insertSnapshot(aSnapshotInput({ snapshot_id: id }));
+    expect((await store.getEvidence(id))?.snapshot_id).toBe(id);
+  });
+
+  it("resolves Track C's `snap-<company>-<source>` alias to the newest ok snapshot", async () => {
+    // No document ever carries this id -- Coverage.jsx builds it client-side to
+    // mean "the latest one". Unresolved, every evidence link in Track C 404s.
+    const older = snapshotId('c1', 'registry', '2026-02-01T10:00:00.000Z');
+    const newer = snapshotId('c1', 'registry', '2026-03-01T10:00:00.000Z');
+    await store.insertSnapshot(aSnapshotInput({
+      snapshot_id: older, fetched_at: '2026-02-01T10:00:00.000Z',
+    }));
+    await store.insertSnapshot(aSnapshotInput({
+      snapshot_id: newer, fetched_at: '2026-03-01T10:00:00.000Z',
+    }));
+
+    const alias = latestSnapshotAlias('c1', 'registry');
+    expect(await store.getSnapshot(alias)).toBeNull();
+    expect((await store.getEvidence(alias))?.snapshot_id).toBe(newer);
+  });
+
+  it('returns null rather than guessing for an unknown id', async () => {
+    expect(await store.getEvidence('snap-c1-registry')).toBeNull();
+    expect(await store.getEvidence('snap-c1-not_a_source')).toBeNull();
+    expect(await store.getEvidence('total-nonsense')).toBeNull();
+  });
+
+  it("resolves Track C's `run-<company>-<source>` alias to the newest run", async () => {
+    const alias = runId('c1', 'registry');
+    const first = await store.startRun({
+      run_id: alias, batch_id: 'batch-c1-2026-02-01', company_id: 'c1', source: 'registry',
+      started_at: '2026-02-01T10:00:00.000Z',
+    });
+    await store.finishRun(first, { status: 'ok', credits_spent: 1 });
+    const second = await store.startRun({
+      run_id: alias, batch_id: 'batch-c1-2026-03-01', company_id: 'c1', source: 'registry',
+      started_at: '2026-03-01T10:00:00.000Z',
+    });
+    await store.finishRun(second, { status: 'empty', credits_spent: 0 });
+
+    // Two documents share the alias run_id, which is why that index is not unique.
+    expect(await db.collection('collector_runs').countDocuments({ run_id: alias })).toBe(2);
+    expect((await store.latestRun('c1', 'registry'))?.batch_id).toBe('batch-c1-2026-03-01');
+    expect(await store.latestRun('c1', 'news')).toBeNull();
   });
 });
 

@@ -1,0 +1,22 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-layoffs-baseline",
+  "company_id": "nordvale",
+  "source": "layoffs",
+  "run_id": "run-nordvale-layoffs",
+  "fetched_at": "2026-10-03T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "layoffs:WARN-OH-2026-0418",
+      "type": "warn_notice",
+      "id": "WARN-OH-2026-0418",
+      "employees_affected": 48,
+      "effective_date": "2026-11-15",
+      "site": "Nordvale Cleveland depot"
+    }
+  ],
+  "raw_excerpt": "WARN-OH-2026-0418: 48 employees, effective 15 November 2026.",
+  "source_url": "https://donna-sample.invalid/layoffs/nordvale/latest",
+  "content_hash": "fixture-nordvale-layoffs-baseline"
+}

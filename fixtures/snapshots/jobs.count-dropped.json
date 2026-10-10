@@ -1,0 +1,29 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-jobs",
+  "company_id": "nordvale",
+  "source": "jobs",
+  "run_id": "run-nordvale-jobs",
+  "fetched_at": "2026-10-10T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "jobs:count",
+      "type": "job_count",
+      "open_roles": 12
+    },
+    {
+      "key": "jobs:title:senior-site-reliability-engineer",
+      "type": "job_title",
+      "title": "Senior Site Reliability Engineer"
+    },
+    {
+      "key": "jobs:title:accounts-payable-clerk",
+      "type": "job_title",
+      "title": "Accounts Payable Clerk"
+    }
+  ],
+  "raw_excerpt": "Careers page lists 12 open roles.",
+  "source_url": "https://donna-sample.invalid/jobs/nordvale/latest",
+  "content_hash": "fixture-nordvale-jobs-base"
+}

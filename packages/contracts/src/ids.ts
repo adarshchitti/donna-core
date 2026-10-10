@@ -11,11 +11,50 @@ import type { Source } from './enums.js';
  * or those links 404.
  */
 
+/**
+ * Track C's Coverage.jsx mints `run-<company>-<source>` for the latest run of a
+ * pair, so that form is preserved as the alias. A run that needs a unique id
+ * (every run, once history matters) uses runIdAt.
+ */
 export const runId = (companyId: string, source: Source): string =>
   `run-${companyId}-${source}`;
 
-export const snapshotId = (companyId: string, source: Source): string =>
+export const runIdAt = (companyId: string, source: Source, startedAt: string): string =>
+  `run-${companyId}-${source}-${startedAt.replace(/[:.]/g, '')}`;
+
+/**
+ * The alias form Track C's Coverage.jsx mints client-side to link to the LATEST
+ * snapshot for a (company, source). No document carries this id; `getEvidence`
+ * resolves it by falling back to the newest ok snapshot for that pair. Keeping
+ * the alias means snapshot ids can be unique without touching the frontend.
+ */
+export const latestSnapshotAlias = (companyId: string, source: Source): string =>
   `snap-${companyId}-${source}`;
+
+/**
+ * A snapshot id must be UNIQUE PER FETCH, because snapshots are immutable and we
+ * keep every one -- three years of officer lists is a churn pattern, one officer
+ * list is a fact. An id of `snap-<company>-<source>` would collide on every run,
+ * which would also make change.snapshot_id and change.baseline_id the SAME
+ * string on every change, leaving no way to open the page a claim rests on.
+ */
+export const snapshotId = (
+  companyId: string,
+  source: Source,
+  fetchedAt?: string,
+): string =>
+  fetchedAt === undefined
+    ? latestSnapshotAlias(companyId, source)
+    : `snap-${companyId}-${source}-${fetchedAt.replace(/[:.]/g, '')}`;
+
+/** Parses the alias form back into its parts, or null if it is a real id. */
+export const parseLatestSnapshotAlias = (
+  id: string,
+): { companyId: string; source: string } | null => {
+  const m = /^snap-(.+)-([a-z]+)$/.exec(id);
+  if (!m || !m[1] || !m[2]) return null;
+  return { companyId: m[1], source: m[2] };
+};
 
 /** utcDay must be YYYY-MM-DD. */
 export const batchId = (companyId: string, utcDay: string): string =>

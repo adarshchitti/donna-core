@@ -1,0 +1,39 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-domain",
+  "company_id": "nordvale",
+  "source": "domain",
+  "run_id": "run-nordvale-domain",
+  "fetched_at": "2026-10-10T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "domain:whois:registrar",
+      "type": "whois_field",
+      "field": "registrar",
+      "value": "MarkMonitor Inc."
+    },
+    {
+      "key": "domain:whois:registrant_org",
+      "type": "whois_field",
+      "field": "registrant_org",
+      "value": "Nordvale Freight Systems LLC"
+    },
+    {
+      "key": "domain:whois:expires_on",
+      "type": "whois_field",
+      "field": "expires_on",
+      "value": "2027-05-19"
+    },
+    {
+      "key": "domain:homepage",
+      "type": "homepage",
+      "content_hash": "sha256:b7d914",
+      "title": "Nordvale Freight Systems | Service notice",
+      "url": "https://nordvale.example/"
+    }
+  ],
+  "raw_excerpt": "Homepage title \"Nordvale Freight Systems | Service notice\".",
+  "source_url": "https://donna-sample.invalid/domain/nordvale/latest",
+  "content_hash": "fixture-nordvale-domain-base"
+}

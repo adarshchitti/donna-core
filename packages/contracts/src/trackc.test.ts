@@ -7,6 +7,7 @@ import {
   snapshotSchema, changeSchema, signalSchema, clusterSchema, briefingSchema,
   coverageSchema, SOURCES, SOURCE_LABELS, NOT_COVERED_CATEGORIES,
   sourceIdFromLabel, SOURCE_TRUST, runId, snapshotId, batchId,
+  latestSnapshotAlias, parseLatestSnapshotAlias,
 } from './index.js';
 
 const fixturePath = fileURLToPath(
@@ -131,7 +132,24 @@ describe('id conventions Track C mints client-side', () => {
     const run = fx.collector_runs!.find((r) => r.run_id === 'run-northstar-registry')!;
     expect(runId('northstar', 'registry')).toBe(run.run_id);
     expect(batchId('northstar', '2026-10-10')).toBe(run.batch_id);
-    expect(snapshotId('northstar', 'registry')).toBe(fx.snapshots![0]!.snapshot_id);
+  });
+
+  it('matches the snapshot ALIAS, not a real snapshot id', () => {
+    // Track C links to `snap-<company>-<source>` meaning "the latest one".
+    // Real snapshot ids must be unique per fetch, so getEvidence resolves the
+    // alias to the newest ok snapshot rather than finding a doc with that id.
+    expect(latestSnapshotAlias('northstar', 'registry')).toBe(fx.snapshots![0]!.snapshot_id);
+    expect(parseLatestSnapshotAlias('snap-northstar-registry')).toEqual({
+      companyId: 'northstar', source: 'registry',
+    });
+  });
+
+  it('mints a distinct snapshot id per fetch, so evidence stays addressable', () => {
+    const a = snapshotId('northstar', 'registry', '2026-10-10T19:42:00Z');
+    const b = snapshotId('northstar', 'registry', '2026-10-11T19:42:00Z');
+    expect(a).not.toBe(b);
+    // A change cites two DIFFERENT snapshots, or no one can check the claim.
+    expect(a).not.toBe(latestSnapshotAlias('northstar', 'registry'));
   });
 });
 

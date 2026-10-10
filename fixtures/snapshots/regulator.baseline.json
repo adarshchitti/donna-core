@@ -1,0 +1,22 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-regulator-baseline",
+  "company_id": "nordvale",
+  "source": "regulator",
+  "run_id": "run-nordvale-regulator",
+  "fetched_at": "2026-10-03T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "regulator:licence:FMCSA-2291",
+      "type": "licence",
+      "id": "FMCSA-2291",
+      "status": "active",
+      "authority": "FMCSA",
+      "kind": "motor carrier operating authority"
+    }
+  ],
+  "raw_excerpt": "FMCSA operating authority FMCSA-2291: ACTIVE.",
+  "source_url": "https://donna-sample.invalid/regulator/nordvale/latest",
+  "content_hash": "fixture-nordvale-regulator-baseline"
+}

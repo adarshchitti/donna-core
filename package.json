@@ -2,7 +2,9 @@
   "name": "donna-core",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
@@ -11,7 +13,8 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "mongodb-memory-server": "^10.1.4"
   },
   "dependencies": {
     "zod": "^3.24.1"

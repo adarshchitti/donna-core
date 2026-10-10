@@ -1,0 +1,22 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-executives-baseline",
+  "company_id": "nordvale",
+  "source": "executives",
+  "run_id": "run-nordvale-executives",
+  "fetched_at": "2026-10-03T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "executives:jane-doe:cfo:2022-04-01",
+      "type": "exec_move",
+      "person": "Jane Doe",
+      "role": "Chief Financial Officer",
+      "date": "2022-04-01",
+      "direction": "appointed"
+    }
+  ],
+  "raw_excerpt": "Jane Doe appointed Chief Financial Officer, 01 April 2022.",
+  "source_url": "https://donna-sample.invalid/executives/nordvale/latest",
+  "content_hash": "fixture-nordvale-executives-baseline"
+}

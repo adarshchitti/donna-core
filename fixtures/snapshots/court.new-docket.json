@@ -1,0 +1,30 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-court",
+  "company_id": "nordvale",
+  "source": "court",
+  "run_id": "run-nordvale-court",
+  "fetched_at": "2026-10-10T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "court:23CV0412",
+      "type": "case",
+      "docket_number": "23CV0412",
+      "status": "closed",
+      "caption": "Pike Freight LLC v. Nordvale Freight Systems LLC",
+      "filed_on": "2023-06-14"
+    },
+    {
+      "key": "court:26CV1180",
+      "type": "case",
+      "docket_number": "26CV1180",
+      "status": "open",
+      "caption": "Harbour Capital Partners v. Nordvale Freight Systems LLC",
+      "filed_on": "2026-10-07"
+    }
+  ],
+  "raw_excerpt": "Franklin County docket: 23CV0412 (closed); 26CV1180 Harbour Capital Partners v. Nordvale Freight Systems LLC, filed 07 October 2026.",
+  "source_url": "https://donna-sample.invalid/court/nordvale/latest",
+  "content_hash": "fixture-nordvale-court-base"
+}

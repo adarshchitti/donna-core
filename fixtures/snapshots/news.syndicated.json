@@ -1,0 +1,49 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-news",
+  "company_id": "nordvale",
+  "source": "news",
+  "run_id": "run-nordvale-news",
+  "fetched_at": "2026-10-10T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "https://tradepress.example/nordvale-depot-opens",
+      "type": "article",
+      "url": "https://tradepress.example/nordvale-depot-opens",
+      "headline": "Nordvale opens Cleveland depot",
+      "headline_norm": "nordvale opens cleveland depot",
+      "published_at": "2026-09-28",
+      "outlet": "Trade Press"
+    },
+    {
+      "key": "https://wire.example/nordvale-cfo-steps-down",
+      "type": "article",
+      "url": "https://wire.example/nordvale-cfo-steps-down",
+      "headline": "Nordvale CFO Jane Doe steps down after four years",
+      "headline_norm": "nordvale cfo jane doe steps down after four years",
+      "published_at": "2026-10-08",
+      "outlet": "Wire"
+    },
+    {
+      "key": "https://regionaldesk.example/business/nordvale-cfo",
+      "type": "article",
+      "url": "https://regionaldesk.example/business/nordvale-cfo",
+      "headline": "Nordvale CFO Jane Doe Steps Down After Four Years",
+      "published_at": "2026-10-08",
+      "outlet": "Regional Desk"
+    },
+    {
+      "key": "https://citybusiness.example/2026/10/nordvale-cfo-exit",
+      "type": "article",
+      "url": "https://citybusiness.example/2026/10/nordvale-cfo-exit",
+      "headline": "Nordvale CFO Jane Doe steps down \u2014 after four years.",
+      "headline_norm": "Nordvale CFO Jane Doe steps down -- after four years.",
+      "published_at": "2026-10-09",
+      "outlet": "City Business"
+    }
+  ],
+  "raw_excerpt": "Wire, 08 October 2026: Nordvale CFO Jane Doe steps down after four years. Carried by Regional Desk and City Business.",
+  "source_url": "https://donna-sample.invalid/news/nordvale/latest",
+  "content_hash": "fixture-nordvale-news-base"
+}

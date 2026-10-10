@@ -1,0 +1,38 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-registry",
+  "company_id": "nordvale",
+  "source": "registry",
+  "run_id": "run-nordvale-registry",
+  "fetched_at": "2026-10-10T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "registry:status",
+      "type": "status",
+      "value": "active"
+    },
+    {
+      "key": "registry:officer:ahmed-rahimi:ceo",
+      "type": "officer",
+      "name": "Ahmed Rahimi",
+      "role": "CEO",
+      "appointed_on": "2019-02-11"
+    },
+    {
+      "key": "registry:filing:F-2026-0448",
+      "type": "filing",
+      "filing_id": "F-2026-0448",
+      "title": "Annual report",
+      "filed_on": "2026-03-31"
+    },
+    {
+      "key": "registry:address",
+      "type": "address",
+      "value": "1200 Harbour Way, Suite 400, Nordvale"
+    }
+  ],
+  "raw_excerpt": "Nordvale Freight Systems LLC -- status: active. Officers of record: Ahmed Rahimi (CEO). Latest filing F-2026-0448 (annual report).",
+  "source_url": "https://donna-sample.invalid/registry/nordvale/latest",
+  "content_hash": "fixture-nordvale-registry-base"
+}

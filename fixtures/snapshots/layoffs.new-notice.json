@@ -1,0 +1,30 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-layoffs",
+  "company_id": "nordvale",
+  "source": "layoffs",
+  "run_id": "run-nordvale-layoffs",
+  "fetched_at": "2026-10-10T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "layoffs:WARN-OH-2026-0418",
+      "type": "warn_notice",
+      "id": "WARN-OH-2026-0418",
+      "employees_affected": 48,
+      "effective_date": "2026-11-15",
+      "site": "Nordvale Cleveland depot"
+    },
+    {
+      "key": "layoffs:WARN-OH-2026-0503",
+      "type": "warn_notice",
+      "id": "WARN-OH-2026-0503",
+      "employees_affected": 210,
+      "effective_date": "2026-12-01",
+      "site": "Nordvale Columbus hub"
+    }
+  ],
+  "raw_excerpt": "WARN-OH-2026-0503: 210 employees at the Columbus hub, effective 01 December 2026.",
+  "source_url": "https://donna-sample.invalid/layoffs/nordvale/latest",
+  "content_hash": "fixture-nordvale-layoffs-base"
+}

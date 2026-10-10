@@ -1,0 +1,23 @@
+{
+  "book_id": "book-demo",
+  "snapshot_id": "snap-nordvale-news-baseline",
+  "company_id": "nordvale",
+  "source": "news",
+  "run_id": "run-nordvale-news",
+  "fetched_at": "2026-10-03T06:00:00Z",
+  "ok": true,
+  "items": [
+    {
+      "key": "https://tradepress.example/nordvale-depot-opens",
+      "type": "article",
+      "url": "https://tradepress.example/nordvale-depot-opens",
+      "headline": "Nordvale opens Cleveland depot",
+      "headline_norm": "nordvale opens cleveland depot",
+      "published_at": "2026-09-28",
+      "outlet": "Trade Press"
+    }
+  ],
+  "raw_excerpt": "Trade Press, 28 September 2026: Nordvale opens Cleveland depot.",
+  "source_url": "https://donna-sample.invalid/news/nordvale/latest",
+  "content_hash": "fixture-nordvale-news-baseline"
+}

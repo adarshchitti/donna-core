@@ -1,0 +1,9 @@
+{
+  "key": "2026-10-10|https://registry.example.gov/company/0100-hartwell-logistics",
+  "url": "https://registry.example.gov/company/0100-hartwell-logistics",
+  "day": "2026-10-10",
+  "zone": "donna_unlocker",
+  "status": 200,
+  "fetched_at": "2026-10-10T09:15:00.000Z",
+  "body": "<!doctype html>\n<html><head><title>Hartwell Logistics LLC - Ohio Business Registry</title></head>\n<body>\n<h1>HARTWELL LOGISTICS LLC</h1>\n<table class=\"entity\">\n  <tr><th>Charter number</th><td>0100-HARTWELL-LOGISTICS</td></tr>\n  <tr><th>Status</th><td>Active</td></tr>\n  <tr><th>Entity type</th><td>Domestic Limited Liability Company</td></tr>\n  <tr><th>Effective date</th><td>03/14/2011</td></tr>\n  <tr><th>Agent</th><td>MARGARET T. HARTWELL, 4120 Groveport Rd, Columbus, OH 43207</td></tr>\n</table>\n<h2>Filings</h2>\n<ul>\n  <li data-filing=\"2026-09-28\">Statutory agent update &mdash; filed 09/28/2026</li>\n  <li data-filing=\"2024-04-02\">Annual report &mdash; filed 04/02/2024</li>\n</ul>\n</body></html>\n"
+}

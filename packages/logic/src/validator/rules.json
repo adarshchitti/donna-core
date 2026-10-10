@@ -1,0 +1,278 @@
+{
+  "version": 1,
+
+  "corroboration_window_days": 14,
+
+  "thresholds": {
+    "tier2_min_exposure_weight": 0.35,
+    "tier3_pattern_count": 3,
+    "reported_min_independent_outlets": 2
+  },
+
+  "labels": {
+    "reported_unconfirmed": "Reported and unconfirmed: no primary record has been observed yet."
+  },
+
+  "exposure": {
+    "value_cap_usd": 2000000,
+    "value_weight": 0.5,
+    "share_cap_pct": 50,
+    "share_weight": 0.3,
+    "hard_substitutability_multiplier": 2,
+    "notice_window_days": 90,
+    "notice_window_bonus": 0.15,
+    "weight_decimals": 2
+  },
+
+  "watch_terms": {
+    "amount_fields": [
+      "claim_amount_usd",
+      "amount_usd",
+      "claim_usd",
+      "damages_usd",
+      "value_usd"
+    ],
+    "name_fields": ["name", "person", "officer", "officer_name", "person_name"],
+    "key_person_types": ["exec_departure"],
+    "litigation_types": ["litigation"],
+    "change_of_control_types": ["change_of_control", "insolvency"]
+  },
+
+  "cluster": {
+    "min_tier_in_cluster": 1,
+    "max_tier_in_cluster": 2,
+    "include_tier3_signal_ids_when_promoted": true
+  },
+
+  "baseline": {
+    "type": "baseline_identity",
+    "tier": 0,
+    "title": "Baseline identity on file",
+    "preferred_source_order": ["registry", "regulator", "court", "layoffs", "news", "executives", "domain", "jobs"]
+  },
+
+  "fallback_signal_type": {
+    "type": "routine_filing",
+    "tier": 0,
+    "title": "Routine filing",
+    "summary": "{source_label} recorded a routine change for {company} on {date}.",
+    "match": []
+  },
+
+  "signal_types": [
+    {
+      "type": "insolvency",
+      "tier": 1,
+      "title": "Insolvency or distress filing",
+      "summary": "{source_label} records an insolvency or distress filing for {company} on {date}.",
+      "match": [
+        {
+          "item_types": [
+            "insolvency",
+            "insolvency_filing",
+            "distress_filing",
+            "bankruptcy",
+            "receivership",
+            "winding_up",
+            "administration"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "change_of_control",
+      "tier": 1,
+      "title": "Ownership change recorded",
+      "summary": "{source_label} records a change of ownership or control at {company} on {date}.",
+      "match": [
+        {
+          "item_types": [
+            "change_of_control",
+            "ownership_change",
+            "controlling_interest",
+            "share_transfer",
+            "merger_completed"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "enforcement",
+      "tier": 1,
+      "title": "Regulatory enforcement recorded",
+      "summary": "{source_label} records a regulatory enforcement action against {company} on {date}.",
+      "match": [
+        {
+          "item_types": [
+            "enforcement",
+            "enforcement_action",
+            "penalty",
+            "fine",
+            "consent_order",
+            "licence_revocation"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sanctions_match",
+      "tier": 1,
+      "title": "Sanctions list match",
+      "summary": "{source_label} records a sanctions or watchlist match for {company} on {date}.",
+      "match": [
+        {
+          "item_types": ["sanctions_match", "sanctions_listing", "watchlist_match"]
+        }
+      ]
+    },
+    {
+      "type": "registry_status_inactive",
+      "tier": 1,
+      "title": "Registry status no longer active",
+      "summary": "{source_label} records that {company} is no longer in active status as at {date}.",
+      "match": [
+        {
+          "item_types": [
+            "registry_status_inactive",
+            "status_not_active",
+            "dissolved",
+            "dissolution",
+            "revoked",
+            "struck_off"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "exec_departure",
+      "tier": 2,
+      "title": "Senior officer departure",
+      "summary": "{source_label} records the departure of a senior officer of {company} on {date}.",
+      "match": [
+        { "item_types": ["exec_departure", "officer_removal", "c_level_departure"] },
+        { "item_types": ["officer"], "kinds": ["removed"] }
+      ]
+    },
+    {
+      "type": "litigation",
+      "tier": 2,
+      "title": "Lawsuit filed",
+      "summary": "{source_label} records a claim filed against {company} on {date}.",
+      "match": [
+        {
+          "item_types": ["litigation", "lawsuit", "case_filed", "claim", "docket_entry"]
+        }
+      ]
+    },
+    {
+      "type": "layoff",
+      "tier": 2,
+      "title": "Layoff notice",
+      "summary": "{source_label} records a layoff notice affecting {company} staff on {date}.",
+      "match": [
+        {
+          "item_types": ["layoff", "layoff_notice", "warn_notice", "redundancy_notice"]
+        }
+      ]
+    },
+    {
+      "type": "licence_lapse",
+      "tier": 2,
+      "title": "Licence lapsed",
+      "summary": "{source_label} records a lapsed licence or permit for {company} as at {date}.",
+      "match": [
+        {
+          "item_types": [
+            "licence_lapse",
+            "license_lapse",
+            "licence_expired",
+            "license_expired",
+            "permit_lapse"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "job_postings",
+      "tier": 3,
+      "title": "Job postings pulled",
+      "summary": "{source_label} shows a change in the number of open roles at {company} as at {date}; the reason is not observed.",
+      "match": [
+        {
+          "item_types": ["job_postings", "jobs_count", "posting_removed", "postings_pulled"]
+        }
+      ]
+    },
+    {
+      "type": "domain_change",
+      "tier": 3,
+      "title": "Domain or brand change",
+      "summary": "{source_label} shows a change to the domain or site branding of {company} as at {date}; the reason is not observed.",
+      "match": [
+        {
+          "item_types": ["domain_change", "brand_change", "site_change", "domain", "mx_change"]
+        }
+      ]
+    },
+    {
+      "type": "press_tone_shift",
+      "tier": 3,
+      "title": "Press tone shift",
+      "summary": "{source_label} shows a shift in press tone about {company} as at {date}; the reason is not observed.",
+      "match": [
+        { "item_types": ["press_tone_shift", "tone_shift", "sentiment_shift"] }
+      ]
+    },
+    {
+      "type": "new_entity_registered",
+      "tier": 3,
+      "title": "New entity registered",
+      "summary": "{source_label} records a newly registered entity connected to {company} on {date}.",
+      "match": [
+        {
+          "item_types": ["new_entity", "entity_registered", "related_registration"]
+        }
+      ]
+    },
+    {
+      "type": "routine_filing",
+      "tier": 0,
+      "title": "Routine filing",
+      "summary": "{source_label} records a routine filing for {company} on {date}.",
+      "match": [
+        {
+          "item_types": ["routine_filing", "annual_report", "annual_filing", "filing", "statement"]
+        }
+      ]
+    },
+    {
+      "type": "address_update",
+      "tier": 0,
+      "title": "Registered address updated",
+      "summary": "{source_label} records an updated address for {company} on {date}.",
+      "match": [
+        {
+          "item_types": ["address", "address_update", "registered_address", "registered_office"]
+        }
+      ]
+    },
+    {
+      "type": "passing_mention",
+      "tier": 0,
+      "title": "Passing mention",
+      "summary": "{source_label} carries a passing mention of {company} on {date}.",
+      "match": [
+        { "item_types": ["mention", "passing_mention", "press_mention"] }
+      ]
+    },
+    {
+      "type": "baseline_identity",
+      "tier": 0,
+      "title": "Baseline identity on file",
+      "summary": "{source_label} holds the baseline identity record for {company} as at {date}.",
+      "match": [
+        { "item_types": ["baseline_identity", "identity", "registration"] }
+      ]
+    }
+  ]
+}

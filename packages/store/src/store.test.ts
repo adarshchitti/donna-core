@@ -920,6 +920,45 @@ describe('clusters and briefings', () => {
   });
 });
 
+describe('book-wide reads for the exposure rollup', () => {
+  const aDealDoc = (over: Record<string, unknown> = {}) => ({
+    book_id: BOOK, deal_id: 'deal-1', company_id: 'c1', counterparty_name: 'Northwind',
+    country: 'GB', deal_class: 'they_pay_us', annual_value_usd: 250_000,
+    start_date: '2025-01-01', end_date: '2026-12-31', status: 'resolved',
+    ...over,
+  });
+
+  it('listDeals returns every deal in this book, linked or not, and no other book', async () => {
+    await db.collection('deals').insertMany([
+      aDealDoc(),
+      aDealDoc({ deal_id: 'deal-2', company_id: 'c2' }),
+      (({ company_id: _, ...rest }) => rest)(aDealDoc({ deal_id: 'deal-3', status: 'unresolved' })),
+      aDealDoc({ book_id: OTHER_BOOK, deal_id: 'deal-other' }),
+    ]);
+    const deals = await store.listDeals();
+    expect(deals.map((d) => d.deal_id).sort()).toEqual(['deal-1', 'deal-2', 'deal-3']);
+  });
+
+  it('listDeals parses on read, so a malformed deal fails loudly rather than vanishing', async () => {
+    // Dropping it would understate the book, which is the false reassurance
+    // the rollup exists to refuse.
+    await db.collection('deals').insertOne(aDealDoc({ annual_value_usd: '250000' }));
+    await expect(store.listDeals()).rejects.toThrow(StoreValidationError);
+  });
+
+  it('clustersForBook returns one current cluster per company, scoped to this book', async () => {
+    const other = DonnaStore.fromClient(client, { database: DB, bookId: OTHER_BOOK });
+    await store.putCluster(aClusterInput());
+    await store.putCluster(aClusterInput({ fingerprint: 'fp-2', top_tier: 1 }));
+    await store.putCluster(aClusterInput({ cluster_id: 'cl-c2', company_id: 'c2' }));
+    await other.putCluster(aClusterInput({ cluster_id: 'cl-c9', company_id: 'c9' }));
+
+    const clusters = await store.clustersForBook();
+    expect(clusters.map((c) => c.company_id).sort()).toEqual(['c1', 'c2']);
+    expect(clusters.find((c) => c.company_id === 'c1')?.top_tier).toBe(1);
+  });
+});
+
 describe('fetch_cache', () => {
   it('caches by URL plus UTC day', async () => {
     await store.putCached('https://registry.example/x', { officers: ['Jane'] }, { day: '2026-03-01' });

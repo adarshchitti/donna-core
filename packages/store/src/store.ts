@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient, type Collection, type Db, type Document, type Filter } from 'mongodb';
 import {
   briefingSchema, changeSchema, clusterSchema, collectorRunSchema, companySchema,
-  coverageSchema, scheduleSchema, signalSchema, snapshotSchema,
+  coverageSchema, dealSchema, scheduleSchema, signalSchema, snapshotSchema,
   isoNow, signalId as makeSignalId, fetchCacheKey, parseLatestSnapshotAlias, SOURCES,
   type Briefing, type Cluster, type Company, type CollectorRun, type Coverage,
   type Deal, type Schedule, type Signal, type Snapshot, type Source,
@@ -565,6 +565,19 @@ export class DonnaStore {
       unknown as Deal[];
   }
 
+  /**
+   * Every deal in the book, linked or not. Book exposure is computed from this
+   * on every read and never stored, so it cannot go stale behind the deals.
+   *
+   * Parsed on read, and a malformed deal THROWS rather than being skipped:
+   * dropping it would silently understate the book, which is exactly the
+   * false reassurance the rollup exists to refuse.
+   */
+  async listDeals(): Promise<Deal[]> {
+    const docs = await this.deals.find(this.scope()).toArray();
+    return docs.map((d) => validate('deals', dealSchema, d));
+  }
+
   // =========================================================================
   // snapshots -- IMMUTABLE
   // =========================================================================
@@ -751,6 +764,16 @@ export class DonnaStore {
   async getCluster(clusterIdValue: string): Promise<Cluster | null> {
     return (await this.clusters.findOne(this.scope({ cluster_id: clusterIdValue }))) as
       unknown as Cluster | null;
+  }
+
+  /**
+   * The current cluster for every company in the book. cluster_id is
+   * cl-<company_id> and putCluster replaces in place, so there is at most one
+   * per company and "current" needs no sort.
+   */
+  async clustersForBook(): Promise<Cluster[]> {
+    const docs = await this.clusters.find(this.scope()).toArray();
+    return docs.map((d) => validate('clusters', clusterSchema, d));
   }
 
   async putBriefing(input: BriefingInput): Promise<void> {

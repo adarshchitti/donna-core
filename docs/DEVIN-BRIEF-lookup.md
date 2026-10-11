@@ -70,6 +70,47 @@ sections, and the fourth is the one the user came for.
 
 ---
 
+## 2b. What TRIGGERS a lookup — read this before you wire anything
+
+**Base44 cannot call a collector.** That is an architectural rule, not an
+oversight: the surface holds the UI and a thin API that reads MongoDB, and it
+never calls Bright Data or Claude. Its whole live data path is one function
+(`base44/functions/donnaIntake/entry.ts`) whose handlers are Mongo reads and
+writes.
+
+So the surface does **not** invoke `runLookup`. It writes an intent, and the
+orchestrator picks it up — exactly the pattern that already exists for deals
+(`intake writes status: unresolved` → `the loop polls and resolves`).
+
+The intent is a `companies` document with:
+- `lookup: {requested_at, requested_by, watch_until}` set,
+- **no `last_checked_at`** (nothing has been collected yet).
+
+Add that as a **third poll in the loop**, beside the two already there:
+
+```
+1. reap    -- unchanged
+2. resolve -- unresolved deals            (already there)
+2b. lookup -- companies with `lookup` set and no `last_checked_at`   <-- NEW
+3. schedule
+4. fold
+```
+
+`loop.ts` already documents why the order matters; put the lookup poll after
+resolve and before schedule, and say why in a comment. The surface will have
+already recorded the entity (it has its own resolution path in
+`base44/shared/donnaResolution.ts`), so a lookup intent usually arrives with a
+`registry_id` already on it — but **do not assume one**. If the record has no
+usable registry identity, resolve it first through §2 step 1 and park it on low
+confidence, same rules.
+
+`runLookup` keeps the signature in §2 so it is directly callable from the CLI
+too; the loop poll is a thin wrapper that turns one intent document into one
+`runLookup` call. One lookup per tick is fine and is the safer default against
+the credit ceiling — do not batch them.
+
+---
+
 ## 3. Watch while we negotiate
 
 Default is **one shot**: a lookup is a single onboarding pass and writes no

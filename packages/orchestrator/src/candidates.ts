@@ -198,7 +198,7 @@ export function openCorporatesCandidates(deps: CandidateDeps): CandidateSource {
       //                      candidates a judge might legitimately pick.
       const juris = ocJurisdiction(jurisdiction);
       const narrow = juris.includes('_') ? `&jurisdiction_code=${juris}` : '';
-      const url = `https://opencorporates.com/companies?q=${encodeURIComponent(name)}${narrow}&order=score&utf8=%E2%9C%93`;
+      const url = `https://opencorporates.com/companies?q=${encodeURIComponent(name)}${narrow}&order=score&inactive=false&utf8=%E2%9C%93`;
       const { body } = await deps.unlocker(url);
 
       // Kept to anchor + text rather than a brittle nested-selector walk: the

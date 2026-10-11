@@ -2,9 +2,10 @@
   "version": 1,
   "corroboration_window_days": 14,
   "thresholds": {
-    "tier2_min_exposure_weight": 0.3,
+    "tier2_min_exposure_weight": 0.15,
     "tier3_pattern_count": 3,
-    "reported_min_independent_outlets": 2
+    "reported_min_independent_outlets": 2,
+    "_tier2_note": "Was 0.30, which suppressed the architecture's own worked example ($820k at 14% share scores 0.289) and every tier-2 signal on a mid-size deal. Calibrated so a $400k deal at 10% share (0.16) surfaces. Deals missing the optional fields bypass this gate entirely -- see surfaces() in cluster.ts."
   },
   "labels": {
     "reported_unconfirmed": "Reported and unconfirmed: no primary record has been observed yet."

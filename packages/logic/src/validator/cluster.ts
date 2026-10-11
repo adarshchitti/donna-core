@@ -58,10 +58,22 @@ export const surfaces = (
   signal: Signal,
   topExposureWeight: number,
   rules: Rules = loadRules(),
+  /**
+   * False when no linked deal carried share_pct, substitutability and
+   * notice_days, so the weight is a floor rather than a measurement.
+   */
+  exposureKnown = true,
 ): boolean => {
   if (signal.tier === 0) return false;
   if (signal.tier === 1) return true;
-  if (signal.tier === 2) return topExposureWeight >= rules.thresholds.tier2_min_exposure_weight;
+  if (signal.tier === 2) {
+    // Exposure UNKNOWN surfaces. Suppressing a filed lawsuit or a layoff notice
+    // because the user never typed a share percentage would let missing data
+    // read as low exposure -- the same false reassurance the whole product
+    // refuses. An unknown weight is a reason to show and label, not to hide.
+    if (!exposureKnown) return true;
+    return topExposureWeight >= rules.thresholds.tier2_min_exposure_weight;
+  }
   return true;
 };
 

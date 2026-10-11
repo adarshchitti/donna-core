@@ -29,6 +29,19 @@ export interface ExposureBreakdown {
   notice_days_remaining: number;
   /** Every addend, so the number can be explained line by line. */
   parts: { value: number; share: number; substitutability_multiplier: number; notice_bonus: number };
+  /**
+   * True when the user left the optional exposure fields blank, so the weight is
+   * an UNDERSTATEMENT rather than a measurement.
+   *
+   * share_pct, substitutability and notice_days are all optional at intake, and
+   * each only ever ADDS to the weight. So a deal with none of them scores far
+   * below the same deal fully described. Gating on that number would mean
+   * suppressing a lawsuit because somebody did not type a percentage -- letting
+   * missing data read as low exposure, which is the same false reassurance this
+   * system exists to prevent. The validator therefore treats an incomplete deal
+   * as exposure UNKNOWN, not exposure low.
+   */
+  exposure_known: boolean;
 }
 
 const round = (n: number, decimals: number): number => {
@@ -48,6 +61,12 @@ export const exposureFor = (
   const value = cfg.value_weight * clamp01(Math.abs(deal.annual_value_usd) / cfg.value_cap_usd);
   const share = cfg.share_weight * clamp01((deal.share_pct ?? 0) / cfg.share_cap_pct);
 
+  // Every optional field only ever increases the weight, so absence is
+  // indistinguishable from "small" unless we record it.
+  const exposure_known = deal.share_pct !== undefined
+    && deal.substitutability !== undefined && deal.substitutability !== ''
+    && deal.notice_days !== undefined;
+
   const multiplier = deal.substitutability === 'hard' ? cfg.hard_substitutability_multiplier : 1;
 
   const daysToRenewal = daysBetween(today, deal.end_date);
@@ -64,6 +83,7 @@ export const exposureFor = (
     days_to_renewal: daysToRenewal,
     notice_days_remaining: noticeRemaining,
     parts: { value, share, substitutability_multiplier: multiplier, notice_bonus: noticeBonus },
+    exposure_known,
   };
 };
 
@@ -90,6 +110,8 @@ export interface CompanyExposure {
   deals: ClusterDeal[];
   top_weight: number;
   annual_value_usd: number;
+  /** False when no linked deal carries the optional fields; the weight is then a floor. */
+  exposure_known: boolean;
 }
 
 export const companyExposure = (
@@ -98,9 +120,14 @@ export const companyExposure = (
   rules: Rules = loadRules(),
 ): CompanyExposure => {
   const mapped = deals.map((d) => toClusterDeal(d, today, rules));
+  // Exposure is only "known" for this company if at least one linked deal was
+  // fully described. With none, the top weight is a floor, not a measurement,
+  // and the tier-2 gate must not be applied to it.
+  const known = deals.some((d) => exposureFor(d, today, rules).exposure_known);
   return {
     deals: mapped,
     top_weight: mapped.reduce((top, d) => Math.max(top, d.exposure_weight), 0),
     annual_value_usd: mapped.reduce((sum, d) => sum + d.annual_value_usd, 0),
+    exposure_known: known,
   };
 };

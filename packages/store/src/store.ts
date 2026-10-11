@@ -457,6 +457,96 @@ export class DonnaStore {
   }
 
   /** Uses our added {book_id, company_id} deals index. */
+  /**
+   * Deals awaiting entity resolution.
+   *
+   * Intake only ever writes `status: 'unresolved'` and nothing else triggers
+   * resolution, so the orchestrator loop has to poll for these. `needs_review`
+   * is deliberately EXCLUDED: those are waiting on a person, and re-resolving
+   * them would overwrite the candidates the review list is showing.
+   */
+  async unresolvedDeals(limit = 50): Promise<Deal[]> {
+    return (await this.deals
+      .find(this.scope({ status: 'unresolved' }))
+      .limit(limit)
+      .maxTimeMS(10_000)
+      .toArray()) as unknown as Deal[];
+  }
+
+  /**
+   * Link a resolved deal to its company.
+   *
+   * Guarded on `status: 'unresolved'` so this can never overwrite a decision a
+   * person already made, and so two loop iterations racing the same deal leave
+   * exactly one winner. `resolved_by` carries the AUTO_RESOLVER sentinel, which
+   * is what lets the UI distinguish an automated match from a manual one.
+   *
+   * Note the asymmetry with needs_review: a deal is resolved ALL THE WAY or
+   * parked with nothing worth losing, because Track C's findCandidates replaces
+   * the whole `resolution` subdocument the moment an analyst opens it.
+   */
+  async linkDealToCompany(input: {
+    deal_id: string;
+    company_id: string;
+    confidence: number | null;
+    reason: string;
+    candidates_seen?: Record<string, unknown>[];
+  }): Promise<boolean> {
+    const now = toUtcInstant(new Date());
+    const result = await this.deals.findOneAndUpdate(
+      this.scope({ deal_id: input.deal_id, status: 'unresolved' }),
+      {
+        $set: {
+          company_id: input.company_id,
+          status: 'resolved',
+          resolution: {
+            confidence: input.confidence,
+            reason: input.reason,
+            resolved_by: AUTO_RESOLVER,
+            resolved_at: now,
+            candidates_seen: input.candidates_seen ?? [],
+          },
+          updated_date: now,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    return result !== null;
+  }
+
+  /**
+   * Park a deal for a human, with the candidates we considered attached.
+   *
+   * We never auto-resolve a low-confidence match: a wrong match makes every
+   * later step confidently wrong, reporting another company's changes against
+   * this agreement. Parking keeps NOTHING we would mind losing, because
+   * findCandidates overwrites `resolution` wholesale.
+   */
+  async parkDealForReview(input: {
+    deal_id: string;
+    reason: string;
+    candidates_seen?: Record<string, unknown>[];
+  }): Promise<boolean> {
+    const now = toUtcInstant(new Date());
+    const result = await this.deals.findOneAndUpdate(
+      this.scope({ deal_id: input.deal_id, status: 'unresolved' }),
+      {
+        $set: {
+          status: 'needs_review',
+          resolution: {
+            confidence: null,
+            reason: input.reason,
+            resolved_by: AUTO_RESOLVER,
+            candidates_seen: input.candidates_seen ?? [],
+          },
+          updated_date: now,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    return result !== null;
+  }
+
   async dealsForCompany(companyId: string): Promise<Deal[]> {
     return (await this.deals.find(this.scope({ company_id: companyId })).toArray()) as
       unknown as Deal[];

@@ -17,6 +17,7 @@ import { FileCassetteStore } from './cassette.js';
 import {
   BRIGHTDATA_ENDPOINT,
   CREDITS_PER_REQUEST,
+  readApiKeys,
   readCreditCeiling,
   readTimeoutMs,
   resolveFetchMode,
@@ -40,6 +41,8 @@ export interface BrightDataClientOptions {
   /** Defaults to `process.env`; injectable so tests never mutate the real env. */
   env?: Env;
   apiKey?: string;
+  /** Ordered rotation list. Defaults to BRIGHTDATA_API_KEYS + BRIGHTDATA_API_KEY. */
+  apiKeys?: readonly string[];
   unlockerZone?: string;
   serpZone?: string;
   /** Defaults to a FileCassetteStore over `cassetteDir`. */
@@ -77,6 +80,51 @@ const SERP_ZONE_REJECTION = "isn't supported with SERP API";
 /** 429 and 5xx are worth another try; any other 4xx is our fault, not theirs. */
 const isTransientStatus = (status: number): boolean => status === 429 || status >= 500;
 
+/**
+ * Statuses that mean "this credential is the problem": rejected, out of
+ * budget, or not permitted on this zone. Retrying the same key cannot fix any
+ * of them, but the next key in the rotation might -- the keys carry separate
+ * budgets. Everything else is the request's fault and rotation would only
+ * spread one bad call across every credential we own.
+ */
+const isCredentialStatus = (status: number): boolean =>
+  status === 401 || status === 402 || status === 403;
+
+/**
+ * What an `x-brd-error` actually means.
+ *
+ * Bright Data answers a refusal with HTTP 200 and puts the reason in headers,
+ * and the reasons are not the same kind of thing. A government domain is
+ * blocked by policy and will be blocked forever; `expect_element` means their
+ * headless browser gave up waiting for a selector on a page that renders
+ * fine on the next attempt. Treating the second as the first is why a live
+ * pass reported "REFUSED BY POLICY" about a 30-second timeout and never
+ * retried a source that was one retry from working.
+ *
+ * Both carry `x-brd-status-code: 502`, so the status cannot do the sorting --
+ * the error code and message have to.
+ */
+const POLICY_SIGNS = [
+  'classified as government',
+  'blocked by bright data',
+  'usage policy',
+  'robots.txt',
+  'not available for immediate residential',
+  'kyc',
+];
+
+export type BrdErrorKind = 'policy' | 'transient';
+
+export const classifyBrdError = (error: string, code: string | null): BrdErrorKind => {
+  const haystack = `${error} ${code ?? ''}`.toLowerCase();
+  if (haystack.includes('policy_') || POLICY_SIGNS.some((sign) => haystack.includes(sign))) {
+    return 'policy';
+  }
+  // Everything else -- selector timeouts, upstream 5xx, dead proxy peers --
+  // is worth the retry the HTTP path already gets.
+  return 'transient';
+};
+
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((done) => {
     setTimeout(done, ms);
@@ -96,7 +144,8 @@ export class BrightDataFetcher implements BrightDataClient {
   readonly creditCeiling: number | undefined;
 
   private readonly env: Env;
-  private readonly apiKey: string | undefined;
+  private readonly apiKeys: readonly string[];
+  private keyIndex = 0;
   private readonly unlockerZone: string | undefined;
   private readonly serpZone: string | undefined;
   private readonly fetchImpl: FetchLike;
@@ -111,7 +160,8 @@ export class BrightDataFetcher implements BrightDataClient {
   constructor(opts: BrightDataClientOptions = {}) {
     this.env = opts.env ?? process.env;
     this.mode = opts.mode ?? resolveFetchMode(this.env);
-    this.apiKey = opts.apiKey ?? this.env.BRIGHTDATA_API_KEY;
+    this.apiKeys =
+      opts.apiKeys ?? (opts.apiKey === undefined ? readApiKeys(this.env) : [opts.apiKey]);
     this.unlockerZone = opts.unlockerZone ?? this.env.BRIGHTDATA_UNLOCKER_ZONE;
     this.serpZone = opts.serpZone ?? this.env.BRIGHTDATA_SERP_ZONE;
     this.store = opts.store ?? new FileCassetteStore(opts.cassetteDir ?? this.env.DONNA_CASSETTE_DIR);
@@ -263,12 +313,25 @@ export class BrightDataFetcher implements BrightDataClient {
   }
 
   /**
+   * Advance to the next credential. Returns false once every key has been
+   * tried, which is the signal to report the failure rather than loop.
+   *
+   * The key itself is never logged -- callers see "key 2 of 3", because this
+   * message ends up in an envelope, a credit report and a transcript.
+   */
+  private rotateKey(): boolean {
+    if (this.keyIndex + 1 >= this.apiKeys.length) return false;
+    this.keyIndex += 1;
+    return true;
+  }
+
+  /**
    * One Bright Data request, with timeout and bounded retry. Never lets a raw
    * fetch rejection escape: everything is wrapped with the URL and the mode,
    * which is what a collector writes into `envelope.error`.
    */
   private async request(url: string, zone: string): Promise<{ status: number; body: string }> {
-    if (this.apiKey === undefined || this.apiKey === '') {
+    if (this.apiKeys.length === 0) {
       throw new FetchError(
         `BRIGHTDATA_API_KEY is not set, so a ${this.mode}-mode fetch of ${url} cannot ` +
           `authenticate. Use DONNA_FETCH_MODE=replay to run offline.`,
@@ -288,7 +351,7 @@ export class BrightDataFetcher implements BrightDataClient {
         const res = await this.fetchImpl(BRIGHTDATA_ENDPOINT, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${this.apiKeys[this.keyIndex]}`,
             'Content-Type': 'application/json',
           },
           body: payload,
@@ -303,18 +366,47 @@ export class BrightDataFetcher implements BrightDataClient {
         // about a source we were never allowed to read.
         const refusal = res.headers?.get('x-brd-error') ?? null;
         if (refusal) {
-          throw new FetchError(
-            `Bright Data refused ${url} (zone ${zone}): ${refusal}. ` +
-              `This is a policy refusal, not an empty page -- the body was ${text.length} bytes. ` +
-              `Government domains are blocked on every Bright Data product, so this ` +
-              `source needs a non-government equivalent rather than a different scraper.`,
-            { code: 'POLICY_REFUSED', url, mode: this.mode },
-          );
+          const brdCode = res.headers?.get('x-brd-error-code') ?? null;
+          const detail = `${refusal}` + (brdCode === null ? '' : ` (x-brd-error-code: ${brdCode})`);
+
+          if (classifyBrdError(refusal, brdCode) === 'policy') {
+            throw new FetchError(
+              `Bright Data refused ${url} (zone ${zone}): ${detail}. ` +
+                `This is a policy refusal, not an empty page -- the body was ${text.length} bytes. ` +
+                `Government domains are blocked on every Bright Data product, so this ` +
+                `source needs a non-government equivalent rather than a different scraper.`,
+              { code: 'POLICY_REFUSED', url, mode: this.mode },
+            );
+          }
+
+          // Transient: Bright Data failed to RENDER the page, not to allow it.
+          // Falls into the same bounded retry the HTTP path uses.
+          lastDetail = `x-brd-error on attempt ${attempt + 1}: ${detail}`;
+          if (attempt === this.maxRetries) {
+            throw new FetchError(
+              `Bright Data could not fetch ${url} (zone ${zone}) in ${attempt + 1} ` +
+                `attempt(s): ${detail}. This is a fetch failure on their side, NOT a ` +
+                `policy refusal -- the target is allowed and the same URL may work on ` +
+                `the next run.`,
+              { code: 'HTTP', url, mode: this.mode },
+            );
+          }
+          continue;
         }
 
         if (res.ok) return { status: res.status, body: text };
 
-        lastDetail = `HTTP ${res.status}: ${text.slice(0, 200)}`;
+        lastDetail = `HTTP ${res.status} on key ${this.keyIndex + 1} of ` +
+          `${this.apiKeys.length}: ${text.slice(0, 200)}`;
+
+        // A rejected or exhausted key is not a transient failure, so it gets
+        // the next credential rather than another attempt on this one. The
+        // decrement gives that key a full retry budget of its own; the loop
+        // stays bounded because rotation can only happen once per key.
+        if (isCredentialStatus(res.status) && this.rotateKey()) {
+          attempt -= 1;
+          continue;
+        }
         // A 4xx that is not 429 is a bad request or a bad key -- retrying just
         // burns time and, on some plans, credits.
         if (!isTransientStatus(res.status) || attempt === this.maxRetries) {

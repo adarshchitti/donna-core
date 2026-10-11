@@ -5,7 +5,13 @@ import { join } from 'node:path';
 import { fetchCacheKey } from '@donna/contracts';
 import { createBrightDataClient } from './client.js';
 import { cassetteFileName, MemoryCassetteStore } from './cassette.js';
-import { BRIGHTDATA_ENDPOINT, resolveFetchMode } from './config.js';
+import {
+  BRIGHTDATA_ENDPOINT,
+  assertLiveEnv,
+  missingLiveEnv,
+  readApiKeys,
+  resolveFetchMode,
+} from './config.js';
 import { CassetteMissError, CreditCeilingError, FetchError } from './errors.js';
 import { forbiddenFetch, stubFetch } from './testing.js';
 import { cassetteSchema } from './types.js';
@@ -569,5 +575,120 @@ describe('robustness', () => {
     expect(err).toBeInstanceOf(FetchError);
     expect((err as FetchError).code).toBe('TIMEOUT');
     expect((err as Error).message).toContain('timed out after 5ms');
+  });
+});
+
+describe('credential rotation', () => {
+  const PAGE = 'https://registry.example.com/company/1';
+
+  it('moves to the next key when one is rejected, and reports which', async () => {
+    const net = stubFetch([
+      { status: 401, body: 'Auth failed' },
+      { status: 200, body: '<html>second key worked</html>' },
+    ]);
+    const client = createBrightDataClient({
+      mode: 'record',
+      env: BARE_ENV,
+      apiKeys: ['key-one', 'key-two'],
+      unlockerZone: CREDS.unlockerZone,
+      serpZone: CREDS.serpZone,
+      store: new MemoryCassetteStore(),
+      now: pinnedNow,
+      fetchImpl: net.impl,
+      backoffMs: 0,
+    });
+
+    const res = await client.unlocker(PAGE);
+
+    expect(res.body).toContain('second key worked');
+    expect(net.calls).toHaveLength(2);
+    expect(net.calls[0]?.init.headers?.Authorization).toBe('Bearer key-one');
+    expect(net.calls[1]?.init.headers?.Authorization).toBe('Bearer key-two');
+    // One request billed, not two: the rejected call never served a page.
+    expect(client.creditsSpent()).toBe(1);
+  });
+
+  it('gives up once every key is exhausted, without naming the keys', async () => {
+    const net = stubFetch([{ status: 402, body: 'Out of budget' }]);
+    const client = createBrightDataClient({
+      mode: 'record',
+      env: BARE_ENV,
+      apiKeys: ['key-one', 'key-two'],
+      unlockerZone: CREDS.unlockerZone,
+      serpZone: CREDS.serpZone,
+      store: new MemoryCassetteStore(),
+      now: pinnedNow,
+      fetchImpl: net.impl,
+      backoffMs: 0,
+    });
+
+    const err = await client.unlocker(PAGE).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(FetchError);
+    expect((err as FetchError).code).toBe('HTTP');
+    expect((err as Error).message).toContain('key 2 of 2');
+    expect((err as Error).message).not.toContain('key-one');
+    expect(net.calls).toHaveLength(2);
+    expect(client.creditsSpent()).toBe(0);
+  });
+
+  it('does not rotate on a failure the next key cannot fix', async () => {
+    const net = stubFetch([{ status: 400, body: 'Bad target URL' }]);
+    const client = createBrightDataClient({
+      mode: 'record',
+      env: BARE_ENV,
+      apiKeys: ['key-one', 'key-two'],
+      unlockerZone: CREDS.unlockerZone,
+      serpZone: CREDS.serpZone,
+      store: new MemoryCassetteStore(),
+      now: pinnedNow,
+      fetchImpl: net.impl,
+      backoffMs: 0,
+    });
+
+    await expect(client.unlocker(PAGE)).rejects.toThrow(FetchError);
+    expect(net.calls).toHaveLength(1);
+  });
+
+  it('reads the rotation order from BRIGHTDATA_API_KEYS', () => {
+    expect(
+      readApiKeys({ BRIGHTDATA_API_KEYS: 'k1, k3, k2', BRIGHTDATA_API_KEY: 'k1' }),
+    ).toEqual(['k1', 'k3', 'k2']);
+    // The single-key spelling still works, and is not dropped when the list omits it.
+    expect(readApiKeys({ BRIGHTDATA_API_KEY: 'solo' })).toEqual(['solo']);
+    expect(readApiKeys({ BRIGHTDATA_API_KEYS: 'k2', BRIGHTDATA_API_KEY: 'k1' })).toEqual(['k1', 'k2']);
+    expect(readApiKeys({})).toEqual([]);
+  });
+});
+
+describe('live-env preflight', () => {
+  const FULL = {
+    BRIGHTDATA_API_KEY: 'k',
+    BRIGHTDATA_UNLOCKER_ZONE: 'web_unlocker1',
+    BRIGHTDATA_SERP_ZONE: 'serp_api1',
+  };
+
+  it('names every missing variable at once', () => {
+    expect(missingLiveEnv(FULL)).toEqual([]);
+    expect(missingLiveEnv({ BRIGHTDATA_API_KEY: 'k' })).toEqual([
+      'BRIGHTDATA_UNLOCKER_ZONE',
+      'BRIGHTDATA_SERP_ZONE',
+    ]);
+  });
+
+  it('throws a CONFIG error naming the unlocker zone, the one that was missing', () => {
+    const err = (() => {
+      try {
+        assertLiveEnv({ ...FULL, BRIGHTDATA_UNLOCKER_ZONE: '' }, 'record');
+        return undefined;
+      } catch (e: unknown) {
+        return e;
+      }
+    })();
+
+    expect(err).toBeInstanceOf(FetchError);
+    expect((err as FetchError).code).toBe('CONFIG');
+    expect((err as Error).message).toContain('BRIGHTDATA_UNLOCKER_ZONE');
+    expect(() => assertLiveEnv(FULL)).not.toThrow();
   });
 });

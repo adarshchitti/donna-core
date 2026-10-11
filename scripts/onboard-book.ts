@@ -31,7 +31,7 @@ import {
   type Cluster, type Company, type Deal, type Signal, type Source,
 } from '@donna/contracts';
 import { DonnaStore } from '@donna/store';
-import { resolveFetchMode, BrightDataFetcher, readCreditCeiling } from '@donna/fetch';
+import { resolveFetchMode, assertLiveEnv, BrightDataFetcher, readCreditCeiling } from '@donna/fetch';
 import { narrate, narratorInput, validate } from '@donna/logic';
 import {
   runBatch,
@@ -119,6 +119,9 @@ if (commit) {
   const uri = requireEnv(process.env, 'MONGODB_URI', 'the committed baseline writes to MongoDB');
   const database = requireEnv(process.env, 'MONGODB_DATABASE', 'the committed baseline needs a database name');
   requireEnv(process.env, 'DONNA_CREDIT_CEILING', 'a live onboarding pass must be capped before it starts');
+  // Both zones, before the first company: a missing unlocker zone otherwise
+  // surfaces as six failed sources per company, one company at a time.
+  assertLiveEnv(process.env, mode);
 
   const real = await DonnaStore.connect({ uri, database, bookId });
   store = real as unknown as SummaryStore;

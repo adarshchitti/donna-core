@@ -8,7 +8,8 @@
  * and by nothing else. A new user adds an agreement, nothing happens, and the
  * only way forward is recording the company by hand.
  *
- *   npx vite-node scripts/run-orchestrator.ts                 # resolve only, no fetching beyond resolution
+ *   npx vite-node scripts/run-orchestrator.ts                  # replay: resolves only what is already recorded
+ *   npx vite-node scripts/run-orchestrator.ts -- --live        # resolution fetches for real (spends credits)
  *   npx vite-node scripts/run-orchestrator.ts -- --collect     # also run due collection batches
  *   npx vite-node scripts/run-orchestrator.ts -- --once        # a single tick, then exit
  *
@@ -28,12 +29,13 @@ import {
   runLoop, tick, resolvePending, lookupPending, openCorporatesCandidates,
   makeJudge, clientFromEnv, judgeModel, type LookupPollStore,
 } from '@donna/orchestrator';
-import { BrightDataFetcher } from '@donna/fetch';
+import { BrightDataFetcher, assertLiveEnv, resolveFetchMode } from '@donna/fetch';
 import { loadEnv, requireEnv } from './lib/env.js';
 
 const argv = process.argv.slice(2);
 const COLLECT = argv.includes('--collect');
 const ONCE = argv.includes('--once');
+const LIVE = argv.includes('--live');
 
 loadEnv();
 const uri = requireEnv(process.env, 'MONGODB_URI', 'the orchestrator writes to the live book');
@@ -44,7 +46,19 @@ const ceiling = Number(requireEnv(process.env, 'DONNA_CREDIT_CEILING', 'a loop w
 const store = await DonnaStore.connect({ uri, database, bookId });
 await store.ensureIndexes();
 
-const fetcher = new BrightDataFetcher();
+// Fetching is opt-in, and the default is not harmless-but-useless: candidate
+// lookups are keyed by URL + UTC DAY, so inheriting DONNA_FETCH_MODE=replay
+// means every lookup misses its cassette the moment the UTC day turns over and
+// every deal is parked for review. --live is the explicit opt-in; `record`
+// rather than `live` so today's lookups become tomorrow's free replay.
+if (LIVE) assertLiveEnv(process.env, 'record');
+const fetcher = new BrightDataFetcher(LIVE ? { mode: 'record', writeThrough: true } : {});
+if (!LIVE && resolveFetchMode() === 'replay') {
+  console.log(
+    'NOTE: replay mode -- candidate lookups will only succeed for URLs already recorded ' +
+      'for today\'s UTC day. Everything else is parked as needs_review. Pass --live to fetch.\n',
+  );
+}
 const candidates = openCorporatesCandidates({
   unlocker: async (url) => { const r = await fetcher.unlocker(url); return { body: r.body, url: r.url }; },
   serp: async (q) => { const r = await fetcher.serpResults(q); return { body: r.body, url: r.url }; },
@@ -111,7 +125,8 @@ const deps = {
 };
 
 console.log(
-  `orchestrator up | book=${bookId} | ceiling=${ceiling} | collect=${COLLECT} | ` +
+  `orchestrator up | book=${bookId} | ceiling=${ceiling} | collect=${COLLECT} | `  +
+    `fetch=${fetcher.mode} | ` +
     `lookups=${lookupCeiling === null ? 'off (DONNA_LOOKUP_CREDIT_CEILING unset)' : `on, ceiling ${lookupCeiling}`}\n`,
 );
 

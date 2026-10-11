@@ -38,6 +38,10 @@ export {
   BRIGHTDATA_ENDPOINT,
   CREDITS_PER_REQUEST,
   DEFAULT_TIMEOUT_MS,
+  LIVE_ENV_VARS,
+  assertLiveEnv,
+  missingLiveEnv,
+  readApiKeys,
   readCreditCeiling,
   readTimeoutMs,
   resolveFetchMode,
@@ -66,7 +70,9 @@ export {
 
 export {
   BrightDataFetcher,
+  classifyBrdError,
   createBrightDataClient,
+  type BrdErrorKind,
   type BrightDataClientOptions,
 } from './client.js';
 

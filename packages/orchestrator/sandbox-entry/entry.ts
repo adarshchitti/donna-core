@@ -91,11 +91,19 @@ async function main(): Promise<void> {
         'has neither prefetched bytes to parse nor a way to fetch them',
       );
     }
-    fetcher = new LiveFetcher({
-      apiKey,
-      unlockerZone: process.env.BRIGHTDATA_UNLOCKER_ZONE ?? '',
-      serpZone: process.env.BRIGHTDATA_SERP_ZONE ?? '',
-    });
+    // Named explicitly rather than defaulted to '': an empty zone turns into
+    // a per-source config error inside the sandbox, which comes back as a
+    // failed envelope and reads like a fetch failure.
+    const unlockerZone = process.env.BRIGHTDATA_UNLOCKER_ZONE;
+    const serpZone = process.env.BRIGHTDATA_SERP_ZONE;
+    if (!unlockerZone || !serpZone) {
+      throw new Error(
+        'live sandbox fetching needs BRIGHTDATA_UNLOCKER_ZONE and BRIGHTDATA_SERP_ZONE; ' +
+        `got ${unlockerZone ? 'serp zone' : 'unlocker zone'} missing. The orchestrator ` +
+        'forwards both in the job env.',
+      );
+    }
+    fetcher = new LiveFetcher({ apiKey, unlockerZone, serpZone });
   }
 
   // A collector never throws by contract, but the entry point must not depend

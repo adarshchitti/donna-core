@@ -26,7 +26,7 @@
  * empty result.
  */
 import { SOURCES, SOURCE_TRUST } from '@donna/contracts';
-import { BrightDataFetcher, readCreditCeiling } from '@donna/fetch';
+import { BrightDataFetcher, assertLiveEnv, readCreditCeiling } from '@donna/fetch';
 import { CADENCE } from '../packages/orchestrator/src/loop.js';
 import { collectors } from '../../donna-collectors/src/index.js';
 import type { CanonicalCompany } from '../../donna-collectors/src/contract.js';
@@ -57,6 +57,9 @@ const company: CanonicalCompany = toCanonical(seed, `measure-${seed.canonical_na
 if (live) {
   requireEnv(process.env, 'DONNA_CREDIT_CEILING', 'a live pass with no ceiling is how a 300-credit budget dies');
   requireEnv(process.env, 'BRIGHTDATA_API_KEY', 'a live pass authenticates to Bright Data with it');
+  // The zones too -- a pass that starts without BRIGHTDATA_UNLOCKER_ZONE
+  // reports six of eight sources as failures and reads like an outage.
+  assertLiveEnv(process.env, 'record');
 }
 
 // One shared fetcher in live mode: the ceiling and the cumulative spend are

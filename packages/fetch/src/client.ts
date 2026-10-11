@@ -296,6 +296,22 @@ export class BrightDataFetcher implements BrightDataClient {
         });
         const text = await res.text();
 
+        // Check for a policy refusal BEFORE trusting res.ok. Bright Data returns
+        // HTTP 200 with an empty body when it refuses a domain by policy -- every
+        // government host, which is most primary-source portals. Treating that as
+        // success would write an empty snapshot and report "no change observed"
+        // about a source we were never allowed to read.
+        const refusal = res.headers?.get('x-brd-error') ?? null;
+        if (refusal) {
+          throw new FetchError(
+            `Bright Data refused ${url} (zone ${zone}): ${refusal}. ` +
+              `This is a policy refusal, not an empty page -- the body was ${text.length} bytes. ` +
+              `Government domains are blocked on every Bright Data product, so this ` +
+              `source needs a non-government equivalent rather than a different scraper.`,
+            { code: 'POLICY_REFUSED', url, mode: this.mode },
+          );
+        }
+
         if (res.ok) return { status: res.status, body: text };
 
         lastDetail = `HTTP ${res.status}: ${text.slice(0, 200)}`;

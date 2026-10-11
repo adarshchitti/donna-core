@@ -159,6 +159,19 @@ export interface HttpResponse {
   readonly status: number;
   readonly ok: boolean;
   text(): Promise<string>;
+  /**
+   * Response headers, when the implementation can supply them.
+   *
+   * Required to detect a Bright Data POLICY REFUSAL, which arrives as HTTP 200
+   * with an EMPTY BODY and the real status only in headers:
+   *   x-brd-error: Access denied: <host> is classified as Government and blocked
+   *   x-brd-error-code: proxy_error
+   *   x-brd-status-code: 502
+   * Without reading these, a refusal looks like a successful empty fetch -- a
+   * silent false negative, which is the single failure mode this product exists
+   * to prevent.
+   */
+  headers?: { get(name: string): string | null };
 }
 
 export interface HttpRequestInit {

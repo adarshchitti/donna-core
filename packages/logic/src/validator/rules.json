@@ -89,6 +89,23 @@
             "winding_up",
             "administration"
           ]
+        },
+        {
+          "item_types": [
+            "case"
+          ],
+          "sources": [
+            "court"
+          ],
+          "item_fields": {
+            "status": [
+              "stayed",
+              "bankruptcy stay",
+              "bankruptcy",
+              "suspended - bankruptcy",
+              "stayed - bankruptcy"
+            ]
+          }
         }
       ]
     },
@@ -193,6 +210,22 @@
               "promoted"
             ]
           }
+        },
+        {
+          "item_types": [
+            "executive_move"
+          ],
+          "sources": [
+            "executives"
+          ],
+          "item_fields": {
+            "kind": [
+              "appointed",
+              "joined",
+              "promoted",
+              "appointment"
+            ]
+          }
         }
       ]
     },
@@ -231,6 +264,24 @@
               "removed",
               "terminated",
               "stepped_down"
+            ]
+          }
+        },
+        {
+          "item_types": [
+            "executive_move"
+          ],
+          "sources": [
+            "executives"
+          ],
+          "item_fields": {
+            "kind": [
+              "departed",
+              "resigned",
+              "removed",
+              "terminated",
+              "stepped_down",
+              "departure"
             ]
           }
         }
@@ -353,6 +404,23 @@
             "homepage",
             "whois_field"
           ]
+        },
+        {
+          "item_types": [
+            "page_hash",
+            "page_title"
+          ],
+          "sources": [
+            "domain"
+          ]
+        },
+        {
+          "item_types": [
+            "prior_name"
+          ],
+          "sources": [
+            "registry"
+          ]
         }
       ]
     },
@@ -453,6 +521,19 @@
             "baseline_identity",
             "identity",
             "registration"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "source_currency",
+      "tier": 0,
+      "title": "Source currency",
+      "summary": "{source_label} reported its own data currency for {company}.",
+      "match": [
+        {
+          "item_types": [
+            "meta"
           ]
         }
       ]

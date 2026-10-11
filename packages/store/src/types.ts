@@ -52,6 +52,15 @@ export interface CompanyUpsertInput {
   };
   last_checked_at?: string;
   monitoring_since?: string;
+  /** A pre-deal lookup. Written on insert only; see DonnaStore.upsertCompany. */
+  lookup?: LookupInput;
+}
+
+export interface LookupInput {
+  requested_at: string;
+  requested_by: string;
+  /** Date-only. Null for a one-shot lookup; a day for a bounded watch. */
+  watch_until: string | null;
 }
 
 export interface CompanyUpsertResult {
@@ -177,6 +186,8 @@ export interface ScheduleInput {
   next_run_at: string;
   last_run_at?: string | null;
   enabled?: boolean;
+  /** Null (the default) for monitoring; an instant for a bounded lookup watch. */
+  expires_at?: string | null;
 }
 
 // ---------------------------------------------------------------------------

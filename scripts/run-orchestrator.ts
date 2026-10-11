@@ -17,11 +17,16 @@
  * left running with --collect would work through the budget on its own. The
  * credit ceiling is enforced regardless, and checked before scheduling rather
  * than after spending.
+ *
+ * Pre-deal lookups run when DONNA_LOOKUP_CREDIT_CEILING is set, and not
+ * otherwise: one intent per tick, each a full collection pass, capped by its
+ * own ceiling as well as DONNA_CREDIT_CEILING. The surface only writes the
+ * intent; this is what collects it.
  */
 import { DonnaStore } from '@donna/store';
 import {
-  runLoop, tick, resolvePending, openCorporatesCandidates,
-  makeJudge, clientFromEnv, judgeModel,
+  runLoop, tick, resolvePending, lookupPending, openCorporatesCandidates,
+  makeJudge, clientFromEnv, judgeModel, type LookupPollStore,
 } from '@donna/orchestrator';
 import { BrightDataFetcher } from '@donna/fetch';
 import { loadEnv, requireEnv } from './lib/env.js';
@@ -60,8 +65,32 @@ const judge = makeJudge(judgeClient);
 const log = (event: string, detail?: Record<string, unknown>) =>
   console.log(`[${new Date().toISOString()}] ${event}`, detail ?? '');
 
+// Lookups need the collectors, so the sibling checkout is only loaded when they
+// are switched on; a resolve-only loop runs without it.
+const lookupCeilingRaw = process.env.DONNA_LOOKUP_CREDIT_CEILING?.trim();
+const lookupCeiling = lookupCeilingRaw ? Number(lookupCeilingRaw) : null;
+if (lookupCeiling !== null && !(Number.isInteger(lookupCeiling) && lookupCeiling > 0)) {
+  throw new Error(`DONNA_LOOKUP_CREDIT_CEILING must be a positive integer, got ${JSON.stringify(lookupCeilingRaw)}`);
+}
+let lookupPoll: (() => Promise<number>) | undefined;
+if (lookupCeiling !== null) {
+  const { pipeline } = await import('./lib/pipeline.js');
+  const { MeteredFetcher } = await import('./lib/metered.js');
+  const collectFetcher = new MeteredFetcher(new BrightDataFetcher());
+  const { batch, wrap } = pipeline({ bookId, fetcherFor: () => collectFetcher, narrateOptions: {}, log });
+  const lookupStore = wrap(store as unknown as LookupPollStore);
+  lookupPoll = async () => {
+    const out = await lookupPending({
+      store: lookupStore, candidates, judge, batch, lookupCeiling, creditCeiling: ceiling, log,
+    });
+    if (out) log('lookup', { company_id: out.company_id, status: out.status, credits: out.credits_spent });
+    return out?.status === 'profiled' ? 1 : 0;
+  };
+}
+
 const deps = {
   store: store as never,
+  ...(lookupPoll ? { lookupPending: lookupPoll } : {}),
   creditCeiling: ceiling,
   log,
   resolvePending: async () => {
@@ -81,7 +110,10 @@ const deps = {
     : async () => 0,
 };
 
-console.log(`orchestrator up | book=${bookId} | ceiling=${ceiling} | collect=${COLLECT}\n`);
+console.log(
+  `orchestrator up | book=${bookId} | ceiling=${ceiling} | collect=${COLLECT} | ` +
+    `lookups=${lookupCeiling === null ? 'off (DONNA_LOOKUP_CREDIT_CEILING unset)' : `on, ceiling ${lookupCeiling}`}\n`,
+);
 
 if (ONCE) {
   console.log(JSON.stringify(await tick(deps), null, 1));

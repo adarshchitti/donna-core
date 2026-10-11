@@ -13,6 +13,7 @@ import {
   signalSchema, snapshotSchema, isoNow, signalId as makeSignalId,
   type Change, type CollectorRun, type Coverage, type Signal, type Snapshot, type Source,
 } from '@donna/contracts';
+import { randomUUID } from 'node:crypto';
 import { contentHash } from '@donna/store';
 import { daysApart } from '@donna/logic';
 import type { BatchStore } from '../../packages/orchestrator/src/run-batch.js';
@@ -29,7 +30,10 @@ export class InMemoryBatchStore implements BatchStore {
   readonly signals = new Map<string, Signal>();
   readonly clusters = new Map<string, Record<string, unknown>>();
   readonly briefings = new Map<string, Record<string, unknown>>();
-  readonly schedules = new Map<string, { cadence: 'daily' | 'weekly'; next_run_at: string; last_run_at: string | null }>();
+  readonly schedules = new Map<string, {
+    cadence: 'daily' | 'weekly'; next_run_at: string; last_run_at: string | null;
+    enabled?: boolean; expires_at?: string | null;
+  }>();
   private deals: Record<string, unknown>[] = [];
   private nextId = 1;
 
@@ -202,5 +206,62 @@ export class InMemoryBatchStore implements BatchStore {
 
   snapshotsForCompany(companyId: string): Snapshot[] {
     return this.snapshots.filter((s) => s.company_id === companyId);
+  }
+}
+
+/**
+ * The in-memory store for scripts/lookup.ts in replay: the batch seam plus the
+ * few writes a lookup makes (company upsert by registry id, resolution,
+ * schedules) and the credit sums the lookup ceiling reads.
+ */
+export class InMemoryLookupStore extends InMemoryBatchStore {
+  async upsertCompany(input: Record<string, unknown>): Promise<{ company_id: string; outcome: string }> {
+    const registryId = String(input['registry_id'] ?? '').trim();
+    const existing = [...this.companies.values()].find(
+      (c) => registryId !== '' && c['registry_id'] === registryId && c['jurisdiction'] === input['jurisdiction'],
+    );
+    if (existing) return { company_id: String(existing['company_id']), outcome: 'unchanged' };
+    const company_id = String(input['company_id'] ?? randomUUID());
+    this.seedCompany({
+      officers: [], related_entities: [], aliases: [], domains: [],
+      ...input,
+      company_id,
+      registry_id: registryId,
+      registry_key: registryId ? registryId.toUpperCase() : `MANUAL:${company_id}`,
+    });
+    return { company_id, outcome: 'inserted' };
+  }
+
+  async setResolution(companyId: string, input: Record<string, unknown>): Promise<void> {
+    const company = this.companies.get(companyId);
+    if (!company) throw new Error(`setResolution: no company ${companyId}`);
+    company['resolution'] = { resolved_by: 'auto_resolver', candidates_seen: [], ...input, resolved_at: isoNow() };
+  }
+
+  async upsertSchedule(input: {
+    company_id: string; source: Source; cadence: 'daily' | 'weekly';
+    next_run_at: string; enabled?: boolean; expires_at?: string | null;
+  }): Promise<void> {
+    this.schedules.set(`${input.company_id}|${input.source}`, {
+      cadence: input.cadence, next_run_at: input.next_run_at, last_run_at: null,
+      enabled: input.enabled ?? true, expires_at: input.expires_at ?? null,
+    });
+  }
+
+  schedulesFor(companyId: string): Array<{ expires_at?: string | null }> {
+    return [...this.schedules.entries()].filter(([k]) => k.startsWith(`${companyId}|`)).map(([, v]) => v);
+  }
+
+  async creditsSpentTotal(): Promise<number> {
+    return this.runs.reduce((sum, r) => sum + (r.credits_spent ?? 0), 0);
+  }
+
+  async creditsSpentOnLookups(): Promise<number> {
+    const prospects = new Set(
+      [...this.companies.values()]
+        .filter((c) => c['lookup'] !== undefined && c['monitoring_since'] === undefined)
+        .map((c) => String(c['company_id'])),
+    );
+    return this.runs.filter((r) => prospects.has(r.company_id)).reduce((sum, r) => sum + (r.credits_spent ?? 0), 0);
   }
 }

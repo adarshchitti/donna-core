@@ -232,3 +232,45 @@ describe('schedules are an invariant the loop converges on', () => {
     await expect(tick(d)).resolves.toMatchObject({ scheduled: 0 });
   });
 });
+
+describe('step 2b: one lookup per tick, between resolve and schedule', () => {
+  it('polls lookups after resolve and before due work', async () => {
+    const d = deps({ lookupPending: async () => { d.calls.push('lookup'); return 1; } });
+    const r = await tick(d);
+    expect(d.calls.indexOf('resolve')).toBeLessThan(d.calls.indexOf('lookup'));
+    expect(d.calls.indexOf('lookup')).toBeLessThan(d.calls.indexOf('orphans'));
+    expect(d.calls.indexOf('lookup')).toBeLessThan(d.calls.indexOf('due'));
+    expect(r.looked_up).toBe(1);
+  });
+
+  it('a failing lookup does not stop due monitoring', async () => {
+    const d = deps({
+      lookupPending: async () => { throw new Error('judge down'); },
+      store: { dueSchedules: async () => [{ company_id: 'a', source: 'registry' as const }] } as never,
+    });
+    const r = await tick(d);
+    expect(r.looked_up).toBe(0);
+    expect(r.batches).toBe(1);
+  });
+});
+
+describe('the reap step also ends expired watches', () => {
+  it('disables expired schedules in step 1, with the injected clock', async () => {
+    const at = new Date('2026-12-02T00:00:00.000Z');
+    let seen: unknown;
+    let dueAt: unknown;
+    const d = deps({
+      now: () => at,
+      store: {
+        disableExpiredSchedules: async (now?: string | Date) => { d.calls.push('expire'); seen = now; return 8; },
+        dueSchedules: async (now?: string | Date) => { d.calls.push('due'); dueAt = now; return []; },
+      } as never,
+    });
+    const r = await tick(d);
+    expect(r.expired).toBe(8);
+    expect(seen).toBe(at);
+    expect(dueAt).toBe(at);
+    expect(d.calls.indexOf('reap')).toBeLessThan(d.calls.indexOf('expire'));
+    expect(d.calls.indexOf('expire')).toBeLessThan(d.calls.indexOf('resolve'));
+  });
+});

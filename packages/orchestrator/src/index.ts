@@ -7,3 +7,4 @@ export * from './collector-runner.js';
 export * from './resolve-pending.js';
 export * from './candidates.js';
 export * from './judge.js';
+export * from './lookup.js';

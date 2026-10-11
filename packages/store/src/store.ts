@@ -8,7 +8,8 @@ import {
   type Deal, type Schedule, type Signal, type Snapshot, type Source,
 } from '@donna/contracts';
 import {
-  AUTO_RESOLVER, COLLECTIONS, FETCH_CACHE_TTL_HOURS, SIGNAL_WINDOW_DAYS, STALE_RUN_MINUTES,
+  AUTO_RESOLVER, COLLECTIONS, FETCH_CACHE_TTL_HOURS, MANUAL_REGISTRY_PREFIX, SIGNAL_WINDOW_DAYS,
+  STALE_RUN_MINUTES,
 } from './constants.js';
 import { ALL_INDEXES, ensureIndexes, type IndexDef } from './indexes.js';
 import { StoreError, validate } from './validate.js';
@@ -213,6 +214,18 @@ export class DonnaStore {
       },
       ...(input.last_checked_at ? { last_checked_at: toUtcInstant(input.last_checked_at) } : {}),
       ...(input.monitoring_since ? { monitoring_since: input.monitoring_since } : {}),
+      // A lookup is identity-time context (who asked, before which signature),
+      // so like the identity fields it is written on insert only. A company
+      // that already exists keeps the history it has.
+      ...(input.lookup
+        ? {
+            lookup: {
+              requested_at: toUtcInstant(input.lookup.requested_at),
+              requested_by: input.lookup.requested_by,
+              watch_until: input.lookup.watch_until,
+            },
+          }
+        : {}),
     }));
 
     // `$setOnInsert` only -- same shape Track C uses, so a concurrent Track C
@@ -873,6 +886,20 @@ export class DonnaStore {
     return { reaped: stale.length, run_ids: runIds, schedules_pushed: pushed };
   }
 
+  /**
+   * Turn off every enabled schedule whose bounded watch has ended. dueSchedules
+   * already refuses to return them; this makes an ended watch stop being a
+   * candidate at all, instead of being filtered out on every tick forever. The
+   * loop calls it from its reap step. Returns how many were disabled.
+   */
+  async disableExpiredSchedules(now: string | Date = new Date()): Promise<number> {
+    const res = await this.schedules.updateMany(
+      this.scope({ enabled: true, expires_at: { $ne: null, $lte: toUtcInstant(now) } }),
+      { $set: { enabled: false } },
+    );
+    return res.modifiedCount;
+  }
+
   async creditsSpentTotal(): Promise<number> {
     const [row] = await this.runs.aggregate<{ total: number }>([
       { $match: this.scope() },
@@ -902,8 +929,11 @@ export class DonnaStore {
     const scheduled = new Set(
       await this.schedules.distinct('company_id', this.scope({})),
     );
+    // A prospect -- `lookup` set, no `monitoring_since` -- has no schedules ON
+    // PURPOSE: a lookup is one shot. Backfilling it would hand every company
+    // somebody glanced at the normal daily cadence, forever.
     const all = await this.companies
-      .find(this.scope({}))
+      .find(this.scope({ $or: [{ lookup: { $exists: false } }, { monitoring_since: { $exists: true } }] }))
       .limit(limit + scheduled.size)
       .maxTimeMS(10_000)
       .toArray();
@@ -920,6 +950,7 @@ export class DonnaStore {
       next_run_at: toUtcInstant(input.next_run_at),
       last_run_at: input.last_run_at ? toUtcInstant(input.last_run_at) : null,
       enabled: input.enabled ?? true,
+      expires_at: input.expires_at ? toUtcInstant(input.expires_at) : null,
     }));
     await this.schedules.replaceOne(
       this.scope({ company_id: doc.company_id, source: doc.source }),
@@ -930,10 +961,90 @@ export class DonnaStore {
 
   /** The orchestrator loop IS the scheduler: it polls this. */
   async dueSchedules(now: string | Date = new Date()): Promise<Schedule[]> {
+    const at = toUtcInstant(now);
+    // An expired watch is never due, even before the reaper has disabled it.
+    // `expires_at: null` also matches a document written before the field
+    // existed, so old schedules need no special case.
     return (await this.schedules
-      .find(this.scope({ enabled: true, next_run_at: { $lte: toUtcInstant(now) } }))
+      .find(this.scope({
+        enabled: true,
+        next_run_at: { $lte: at },
+        $or: [{ expires_at: null }, { expires_at: { $gt: at } }],
+      }))
       .sort({ next_run_at: 1 })
       .toArray()) as unknown as Schedule[];
+  }
+
+  async schedulesForCompany(companyId: string): Promise<Schedule[]> {
+    return (await this.schedules.find(this.scope({ company_id: companyId })).toArray()) as
+      unknown as Schedule[];
+  }
+
+  // =========================================================================
+  // pre-deal lookups
+  //
+  // A lookup is a `companies` document with `lookup` set and no
+  // `monitoring_since` -- no collection of its own. The surface writes the
+  // intent; the loop polls for it here.
+  // =========================================================================
+
+  /**
+   * Lookup intents not yet collected: `lookup` set, no `last_checked_at`.
+   * Oldest request first.
+   *
+   * An intent the resolver already parked (still a manual key, but resolved
+   * by the auto-resolver) is excluded, so a company we could not
+   * identify waits for a person instead of being re-resolved -- and re-billed
+   * -- on every tick.
+   */
+  async lookupIntents(limit = 1): Promise<Company[]> {
+    return (await this.companies
+      .find(this.scope({
+        lookup: { $exists: true },
+        last_checked_at: { $exists: false },
+        $nor: [{
+          registry_key: { $regex: `^${MANUAL_REGISTRY_PREFIX}` },
+          'resolution.resolved_by': AUTO_RESOLVER,
+        }],
+      }))
+      .sort({ 'lookup.requested_at': 1 })
+      .limit(limit)
+      .toArray()) as unknown as Company[];
+  }
+
+  /**
+   * Set monitoring_since if it is not set already. A company promoted twice
+   * keeps the day it was first monitored. Returns the value now on the record.
+   */
+  async setMonitoringSince(companyId: string, day: string): Promise<string> {
+    await this.companies.updateOne(
+      this.scope({ company_id: companyId, monitoring_since: { $exists: false } }),
+      { $set: { monitoring_since: day } },
+    );
+    const doc = await this.companies.findOne(this.scope({ company_id: companyId }));
+    if (!doc) {
+      throw new StoreError(`setMonitoringSince: no company ${JSON.stringify(companyId)} in book ${this.bookId}.`);
+    }
+    return String(doc.monitoring_since);
+  }
+
+  /**
+   * Credits spent collecting prospects -- companies with `lookup` and no
+   * `monitoring_since`. This is what the lookup ceiling is measured against,
+   * separately from creditsSpentTotal. Once a prospect is promoted its runs
+   * count as monitoring: they are still in the total, just not in this quota.
+   */
+  async creditsSpentOnLookups(): Promise<number> {
+    const ids = await this.companies.distinct(
+      'company_id',
+      this.scope({ lookup: { $exists: true }, monitoring_since: { $exists: false } }),
+    );
+    if (ids.length === 0) return 0;
+    const [row] = await this.runs.aggregate<{ total: number }>([
+      { $match: this.scope({ company_id: { $in: ids } }) },
+      { $group: { _id: null, total: { $sum: '$credits_spent' } } },
+    ]).toArray();
+    return row?.total ?? 0;
   }
 
   async getSchedule(companyId: string, source: Source): Promise<Schedule | null> {

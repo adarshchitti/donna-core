@@ -22,7 +22,7 @@ export {
 } from './util.js';
 export type {
   BackfillOutcome, BriefingInput, ChangeInput, ClusterInput, CompanyUpsertInput,
-  CompanyUpsertResult, FetchCacheEntry, PutCachedOptions, ReapResult,
+  CompanyUpsertResult, FetchCacheEntry, LookupInput, PutCachedOptions, ReapResult,
   ResolutionInput, RunFinishPatch, RunHandle, RunStartInput, ScheduleInput,
   SignalInput, SignalUpsertResult, SnapshotInput, SnapshotInsertResult, WriteInput,
 } from './types.js';

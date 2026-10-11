@@ -1,18 +1,26 @@
 import { SOURCES, batchId, utcDay, isoNow, type Source } from '@donna/contracts';
 
 /**
- * The orchestrator loop. One long-lived workspace, once a minute, four things in
+ * The orchestrator loop. One long-lived workspace, once a minute, five things in
  * order. There is no cron daemon and no queue system: this loop IS the
  * scheduler, and changing cadence is editing a document.
  *
  * The order matters and is not arbitrary:
  *   1. reap   -- before anything else, so a crashed run from a previous process
  *                is cleaned up and its schedule freed. This is what makes a
- *                restart recover by itself.
+ *                restart recover by itself. It also disables schedules whose
+ *                bounded lookup watch has ended.
  *   2. resolve -- unresolved deals become companies, and resolution writes
  *                schedules with next_run_at: now, so a newly resolved company's
  *                first batch fires on the NEXT tick. That first batch is the
  *                profile.
+ *   2b. lookup -- one pre-deal lookup intent (a company with `lookup` set and
+ *                no last_checked_at) is resolved and collected once. After
+ *                resolve, so the deal path -- the user's real agreements --
+ *                is never queued behind a prospect; before schedule, so a
+ *                lookup's eight fetches are counted before due work spends
+ *                against the ceiling, and its company is never mistaken for
+ *                one needing schedules backfilled.
  *   3. schedule -- due schedules grouped BY COMPANY into a batch, because the
  *                validator needs every source for one company, not one source
  *                for every company.
@@ -33,6 +41,8 @@ export const CADENCE: Record<Source, 'daily' | 'weekly'> = {
 export interface LoopDeps {
   store: {
     reapStaleRuns(minutes?: number): Promise<{ reaped: number } | unknown>;
+    /** Turns off schedules whose lookup watch has ended -- part of step 1. */
+    disableExpiredSchedules?(now?: string | Date): Promise<number>;
     dueSchedules(now?: string | Date): Promise<Array<{ company_id: string; source: Source }>>;
     creditsSpentTotal(): Promise<number>;
     listCompanies(): Promise<Array<{ company_id: string }>>;
@@ -47,13 +57,20 @@ export interface LoopDeps {
   runBatch(companyId: string, sources: Source[], batch: string): Promise<number>;
   /** Picks up deals with status 'unresolved'. Returns how many it resolved. */
   resolvePending(): Promise<number>;
+  /** Runs at most ONE lookup intent. Returns how many it collected (0 or 1). */
+  lookupPending?(): Promise<number>;
   creditCeiling: number;
+  now?: () => Date;
   log?: (event: string, detail?: Record<string, unknown>) => void;
 }
 
 export interface TickResult {
   reaped: number;
+  /** Schedules disabled because their lookup watch ended. */
+  expired: number;
   resolved: number;
+  /** Lookup intents collected this tick (at most one). */
+  looked_up: number;
   /** Companies that had no schedules and were given them this tick. */
   scheduled: number;
   batches: number;
@@ -66,6 +83,7 @@ export interface TickResult {
 /** One pass. Separated from the interval so it can be tested without timers. */
 export async function tick(deps: LoopDeps): Promise<TickResult> {
   const log = deps.log ?? (() => {});
+  const now = deps.now ?? (() => new Date());
 
   // 1. Reap. A run stuck in `started` for more than ten minutes is treated as
   // failed and its schedule pushed. Because this runs first and on every tick, a
@@ -75,11 +93,31 @@ export async function tick(deps: LoopDeps): Promise<TickResult> {
     ? Number((reapRaw as { reaped: unknown }).reaped) || 0
     : 0;
   if (reaped > 0) log('reaped', { runs: reaped });
+  // An ended watch is switched off rather than filtered out of every tick
+  // forever. dueSchedules() also refuses expired schedules, so this is tidiness
+  // and visibility, not the only guard.
+  const expired = deps.store.disableExpiredSchedules
+    ? await deps.store.disableExpiredSchedules(now())
+    : 0;
+  if (expired > 0) log('watch_expired', { schedules: expired });
 
   // 2. Resolve. Intake only writes status: unresolved; nothing else triggers
   // resolution, so the loop has to poll for it.
   const resolved = await deps.resolvePending();
   if (resolved > 0) log('resolved', { deals: resolved });
+
+  // 2b. Lookup. The surface cannot call a collector, so a pre-deal lookup is an
+  // intent document the loop polls for, exactly like an unresolved deal. One
+  // per tick and never batched: each is a full pass, and runLookup checks its
+  // own ceiling before fetching. A throw here must not stop due monitoring.
+  let looked_up = 0;
+  if (deps.lookupPending) {
+    try {
+      looked_up = await deps.lookupPending();
+    } catch (error) {
+      log('lookup_failed', { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   // 3. Backfill schedules.
   //
@@ -116,12 +154,15 @@ export async function tick(deps: LoopDeps): Promise<TickResult> {
   const credits_spent = await deps.store.creditsSpentTotal();
   if (credits_spent >= deps.creditCeiling) {
     log('credit_ceiling_hit', { credits_spent, ceiling: deps.creditCeiling });
-    return { reaped, resolved, scheduled, batches: 0, jobs: 0, credits_spent, credit_ceiling_hit: true };
+    return {
+      reaped, expired, resolved, looked_up, scheduled,
+      batches: 0, jobs: 0, credits_spent, credit_ceiling_hit: true,
+    };
   }
 
   // 5. Group due work by company. One batch per company, so the validator sees
   // a whole company at once and narrates it once.
-  const due = await deps.store.dueSchedules(new Date());
+  const due = await deps.store.dueSchedules(now());
   const byCompany = new Map<string, Source[]>();
   for (const s of due) {
     const list = byCompany.get(s.company_id) ?? [];
@@ -149,8 +190,10 @@ export async function tick(deps: LoopDeps): Promise<TickResult> {
     }
   }
 
-  log('tick', { reaped, resolved, scheduled, batches, jobs, credits_spent, at: isoNow() });
-  return { reaped, resolved, scheduled, batches, jobs, credits_spent, credit_ceiling_hit: false };
+  log('tick', { reaped, expired, resolved, looked_up, scheduled, batches, jobs, credits_spent, at: isoNow() });
+  return {
+    reaped, expired, resolved, looked_up, scheduled, batches, jobs, credits_spent, credit_ceiling_hit: false,
+  };
 }
 
 /** Long-running driver. Never overlaps ticks, and never dies on one bad tick. */

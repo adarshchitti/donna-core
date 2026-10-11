@@ -885,6 +885,33 @@ export class DonnaStore {
   // schedules
   // =========================================================================
 
+  /**
+   * Companies in this book that have no schedules at all.
+   *
+   * Collection only ever started as a side effect of automated resolution, so a
+   * company added by hand -- Track C's "add company" path, or a deal created
+   * with an existing company already picked -- landed in the book with no
+   * schedules and was never collected. It looked monitored and was inert, which
+   * is the quiet kind of wrong this product is supposed to refuse: the page
+   * showed no checks, truthfully, while the book implied it was being watched.
+   *
+   * The loop uses this to CONVERGE on the invariant "every company has
+   * schedules", rather than trusting one code path to have created them.
+   */
+  async companiesWithoutSchedules(limit = 50): Promise<Company[]> {
+    const scheduled = new Set(
+      await this.schedules.distinct('company_id', this.scope({})),
+    );
+    const all = await this.companies
+      .find(this.scope({}))
+      .limit(limit + scheduled.size)
+      .maxTimeMS(10_000)
+      .toArray();
+    return (all as unknown as Company[])
+      .filter((c) => !scheduled.has(c.company_id))
+      .slice(0, limit);
+  }
+
   async upsertSchedule(input: ScheduleInput): Promise<void> {
     const doc = validate('schedules', scheduleSchema, this.stamp({
       company_id: input.company_id,

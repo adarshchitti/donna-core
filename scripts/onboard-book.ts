@@ -128,7 +128,31 @@ if (commit) {
   if (stored.length === 0) {
     throw new UsageError('the book has no companies -- run scripts/seed-book.ts --commit first.');
   }
-  companies = stored.map((c) =>
+
+  // Collect only companies whose schedules are ENABLED.
+  //
+  // Without this the pass walks every seeded company, and the budget does not
+  // survive that: measure-credits put one full pass at 13 credits, so 30
+  // companies is ~390 against a 300-credit event budget -- and a BRIEFING needs
+  // two passes, because the first run is a baseline by design. The paused
+  // companies stay in the book and on the page; they are simply not fetched.
+  const enabledIds = new Set(
+    (await real.dueSchedules(new Date(Date.now() + 365 * 24 * 3600 * 1000)))
+      .filter((s) => s.enabled !== false)
+      .map((s) => s.company_id),
+  );
+  const selectable = stored.filter((c) => enabledIds.has(c.company_id));
+  if (selectable.length === 0) {
+    throw new UsageError(
+      'every schedule in this book is disabled, so there is nothing to collect. ' +
+      'Run scripts/pick-universe.mjs --commit to choose which companies to monitor.',
+    );
+  }
+  console.log(
+    `collecting ${selectable.length} of ${stored.length} companies ` +
+    `(${stored.length - selectable.length} paused), ~${selectable.length * 13} credits for this pass\n`,
+  );
+  companies = selectable.map((c) =>
     toEntry(c.company_id, c.canonical_name, c.jurisdiction, c.registry_id, c.aliases ?? [], c.domains ?? []),
   );
   liveMetered = new MeteredFetcher(new BrightDataFetcher());

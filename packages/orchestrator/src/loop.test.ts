@@ -11,6 +11,8 @@ function deps(over: Partial<LoopDeps> = {}): LoopDeps & { calls: string[] } {
       dueSchedules: async () => { calls.push('due'); return []; },
       creditsSpentTotal: async () => { calls.push('credits'); return 0; },
       listCompanies: async () => [],
+      companiesWithoutSchedules: async () => { calls.push('orphans'); return []; },
+      upsertSchedule: async () => { calls.push('schedule'); },
     },
     runBatch: async () => { calls.push('batch'); return 1; },
     resolvePending: async () => { calls.push('resolve'); return 0; },
@@ -166,5 +168,67 @@ describe('entity resolution never auto-resolves a doubtful match', () => {
   it('records the reason, so a user can see why we think this is their company', () => {
     const o = outcomeFor(deal, [candidate], { registry_id: 'OH-3819274', confidence: 0.97, reason: 'Registered address matches the invoice address on the deal.' }, []);
     expect(o.resolution.reason).toContain('Registered address matches');
+  });
+});
+
+
+describe('schedules are an invariant the loop converges on', () => {
+  it('gives a hand-added company schedules for every source', async () => {
+    const written: Array<Record<string, unknown>> = [];
+    const d = deps({
+      store: {
+        companiesWithoutSchedules: async () => [{ company_id: 'added-by-hand' }],
+        upsertSchedule: async (i: Record<string, unknown>) => { written.push(i); },
+      } as never,
+    });
+    const r = await tick(d);
+    expect(r.scheduled).toBe(1);
+    expect(written).toHaveLength(SOURCES.length);
+    for (const s of written) expect(SOURCES).toContain(s.source);
+  });
+
+  it('schedules it to run NOW, because the first batch is its profile', async () => {
+    const written: Array<Record<string, unknown>> = [];
+    const d = deps({
+      store: {
+        companiesWithoutSchedules: async () => [{ company_id: 'x' }],
+        upsertSchedule: async (i: Record<string, unknown>) => { written.push(i); },
+      } as never,
+    });
+    await tick(d);
+    const at = new Date(String(written[0]!.next_run_at)).getTime();
+    expect(Math.abs(at - Date.now())).toBeLessThan(60_000);
+  });
+
+  it('does nothing when every company already has schedules', async () => {
+    const d = deps();
+    const r = await tick(d);
+    expect(r.scheduled).toBe(0);
+    expect(d.calls).not.toContain('schedule');
+  });
+
+  it('backfills BEFORE the credit ceiling, so a full budget still fixes the book', async () => {
+    // A company with no schedules is a correctness problem, not a spending one:
+    // giving it schedules costs nothing and collection is gated separately.
+    const written: Array<Record<string, unknown>> = [];
+    const d = deps({
+      store: {
+        creditsSpentTotal: async () => 9999,
+        companiesWithoutSchedules: async () => [{ company_id: 'x' }],
+        upsertSchedule: async (i: Record<string, unknown>) => { written.push(i); },
+      } as never,
+    });
+    const r = await tick(d);
+    expect(r.credit_ceiling_hit).toBe(true);
+    expect(r.scheduled).toBe(1);
+    expect(written).toHaveLength(SOURCES.length);
+  });
+
+  it('still works against a store that lacks the methods', async () => {
+    const d = deps();
+    // Optional on the interface, so removing it is legal -- which is the point:
+    // a store that predates this step must still tick.
+    delete d.store.companiesWithoutSchedules;
+    await expect(tick(d)).resolves.toMatchObject({ scheduled: 0 });
   });
 });

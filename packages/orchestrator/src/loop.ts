@@ -36,6 +36,12 @@ export interface LoopDeps {
     dueSchedules(now?: string | Date): Promise<Array<{ company_id: string; source: Source }>>;
     creditsSpentTotal(): Promise<number>;
     listCompanies(): Promise<Array<{ company_id: string }>>;
+    /** Companies with no schedules at all -- see step 3 in tick(). */
+    companiesWithoutSchedules?(limit?: number): Promise<Array<{ company_id: string }>>;
+    upsertSchedule?(input: {
+      company_id: string; source: Source; cadence: 'daily' | 'weekly';
+      next_run_at: string; enabled?: boolean;
+    }): Promise<void>;
   };
   /** Runs every job for one company and folds the batch. Returns jobs attempted. */
   runBatch(companyId: string, sources: Source[], batch: string): Promise<number>;
@@ -48,6 +54,8 @@ export interface LoopDeps {
 export interface TickResult {
   reaped: number;
   resolved: number;
+  /** Companies that had no schedules and were given them this tick. */
+  scheduled: number;
   batches: number;
   jobs: number;
   credits_spent: number;
@@ -73,16 +81,45 @@ export async function tick(deps: LoopDeps): Promise<TickResult> {
   const resolved = await deps.resolvePending();
   if (resolved > 0) log('resolved', { deals: resolved });
 
-  // 3. Credit ceiling, checked BEFORE scheduling rather than after spending.
+  // 3. Backfill schedules.
+  //
+  // Collection used to start ONLY as a side effect of automated resolution, so
+  // a company added by hand -- Track C's "add company" path, or a deal created
+  // with an existing company already picked -- sat in the book with no
+  // schedules and was never collected. It looked monitored and was inert.
+  //
+  // Rather than patch the paths that create companies, the loop converges on
+  // the invariant: every company has schedules, and anything missing them gets
+  // them on the next tick. A new path can be added without remembering this.
+  //
+  // next_run_at is NOW, so a hand-added company's first batch fires on the
+  // following tick -- and that first batch is its profile, not an alert.
+  let scheduled = 0;
+  if (deps.store.companiesWithoutSchedules && deps.store.upsertSchedule) {
+    const orphans = await deps.store.companiesWithoutSchedules(25);
+    const now = isoNow();
+    for (const company of orphans) {
+      for (const source of SOURCES) {
+        await deps.store.upsertSchedule({
+          company_id: company.company_id, source, cadence: CADENCE[source],
+          next_run_at: now, enabled: true,
+        });
+      }
+      scheduled += 1;
+      log('scheduled_backfill', { company_id: company.company_id });
+    }
+  }
+
+  // 4. Credit ceiling, checked BEFORE scheduling rather than after spending.
   // There are 300 credits for the whole event and a bad loop could spend them
   // before lunch, so the ceiling stops new work instead of reporting the damage.
   const credits_spent = await deps.store.creditsSpentTotal();
   if (credits_spent >= deps.creditCeiling) {
     log('credit_ceiling_hit', { credits_spent, ceiling: deps.creditCeiling });
-    return { reaped, resolved, batches: 0, jobs: 0, credits_spent, credit_ceiling_hit: true };
+    return { reaped, resolved, scheduled, batches: 0, jobs: 0, credits_spent, credit_ceiling_hit: true };
   }
 
-  // 4. Group due work by company. One batch per company, so the validator sees
+  // 5. Group due work by company. One batch per company, so the validator sees
   // a whole company at once and narrates it once.
   const due = await deps.store.dueSchedules(new Date());
   const byCompany = new Map<string, Source[]>();
@@ -112,8 +149,8 @@ export async function tick(deps: LoopDeps): Promise<TickResult> {
     }
   }
 
-  log('tick', { reaped, resolved, batches, jobs, credits_spent, at: isoNow() });
-  return { reaped, resolved, batches, jobs, credits_spent, credit_ceiling_hit: false };
+  log('tick', { reaped, resolved, scheduled, batches, jobs, credits_spent, at: isoNow() });
+  return { reaped, resolved, scheduled, batches, jobs, credits_spent, credit_ceiling_hit: false };
 }
 
 /** Long-running driver. Never overlaps ticks, and never dies on one bad tick. */

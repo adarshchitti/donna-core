@@ -189,7 +189,18 @@ how a reader confirms the one-shot rule held.
 - `promoteToDeal` preserves snapshots, sets `monitoring_since`, keeps `lookup`,
   and writes schedules with `expires_at: null`.
 - The lookup ceiling blocks a run that would exceed it, before any fetch.
-- `npx vitest run` green at **466 or more**; `npx tsc -b` clean.
+- `npx vitest run` shows **no new failures**, and
+  `npx tsc -b packages/orchestrator packages/store` is clean.
+
+**Two checks in this repo will otherwise waste your time.** There is no root
+`tsconfig.json`, so a bare `npx tsc -b` fails on a missing config -- typecheck
+the packages you touched, by name. And
+`packages/contracts/src/conformance.test.ts` reads
+`/Users/adarshc/Desktop/donna-collectors` by ABSOLUTE PATH, so the cross-repo
+drift tests pass only on a machine with that sibling checkout; elsewhere they
+fail and the suite reads ~436 rather than ~466. **Those failures are
+pre-existing and not yours** -- do not fix them, and do not let them stop you
+committing. Compare against the count you saw before your change.
 
 ---
 

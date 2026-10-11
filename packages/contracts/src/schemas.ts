@@ -250,6 +250,29 @@ export const companySchema = z.object({
   coverage: coverageSchema.optional(),
   last_checked_at: isoInstant.optional(),
   monitoring_since: z.string().optional(),
+  /**
+   * Present ONLY on a company that entered through a pre-deal lookup rather
+   * than through a deal row.
+   *
+   * `lookup` and `monitoring_since` are deliberately independent fields rather
+   * than one enum, because they describe two different facts and all three
+   * combinations are real:
+   *   lookup, no monitoring_since  -> looked up, never signed, not watched
+   *   lookup + monitoring_since    -> looked up, then signed; history kept
+   *   monitoring_since, no lookup  -> arrived as a deal the ordinary way
+   *
+   * That middle state is the point of the feature: companies are upserted by
+   * registry_id, so signing reuses this record and the diligence snapshots
+   * become the monitoring baseline instead of being thrown away.
+   *
+   * `watch_until` is the negotiation window; null is the one-shot default.
+   */
+  lookup: z.object({
+    requested_at: isoInstant,
+    requested_by: z.string().min(1),
+    /** Date-only: a user picks a day, not an instant. */
+    watch_until: dateOnly.nullable(),
+  }).optional(),
 }).merge(bookScoped);
 export type Company = z.infer<typeof companySchema>;
 
@@ -263,6 +286,17 @@ export const scheduleSchema = z.object({
   next_run_at: isoInstant,
   last_run_at: isoInstant.nullable(),
   enabled: z.boolean(),
+  /**
+   * When this schedule stops being due. Null -- the default and the case for
+   * every monitored deal -- means no expiry.
+   *
+   * It exists for `watch while we negotiate`: a prospect can be watched for a
+   * bounded window without becoming a permanent credit cost. `.default(null)`
+   * rather than `.optional()` on purpose, so schedules written before this
+   * field existed read back as null instead of undefined and dueSchedules()
+   * needs no special case for them.
+   */
+  expires_at: isoInstant.nullable().default(null),
 }).merge(bookScoped);
 export type Schedule = z.infer<typeof scheduleSchema>;
 
@@ -283,3 +317,108 @@ export const dealSchema = z.object({
   status: z.enum(['unresolved', 'needs_review', 'resolved']),
 });
 export type Deal = z.infer<typeof dealSchema>;
+
+// ---------------------------------------------------------------------------
+// 11. Book exposure  (store reads -> surface).  The whole book, not one deal.
+// ---------------------------------------------------------------------------
+/**
+ * What the book carries in total.
+ *
+ * THIS IS NOT A SCORE, AND THE SHAPE IS THE GUARANTEE. Rule 1 is that the
+ * system reports observed change and never asserts health; a single number for
+ * a whole book is a verdict, and a verdict is precisely what the first tester
+ * said they would not trust. So every field below is either a sum of DOLLARS
+ * the user typed at intake, a COUNT of companies, or a tier that came out of
+ * the rules table -- each one re-derivable on paper.
+ *
+ * Three rules this shape enforces by construction:
+ *
+ *  1. NOTHING IS BLENDED. There is no field here that sums or averages
+ *     `exposure_weight`. A per-deal weight is explainable (value against a cap,
+ *     share against a cap, doubled when hard to replace, plus a notice bump);
+ *     thirty of them added together is a number nobody can check by hand. If
+ *     you are adding a field and reach for a weight, that is the signal you are
+ *     building a score. Add the dollars instead.
+ *
+ *  2. UNKNOWN AGGREGATES AS UNKNOWN. share_pct, substitutability and
+ *     notice_days are optional at intake and each only ever ADDS to a weight,
+ *     so a sparsely described deal always understates. `value_exposure_unknown`
+ *     carries that up: it is the contracted value whose exposure is a floor
+ *     rather than a measurement. A book that is mostly unknown must read as
+ *     mostly unknown, not as mostly low.
+ *
+ *  3. COVERAGE IS MONEY, NOT A PERCENTAGE. "94% source coverage" hides which
+ *     6%. `value_behind_failed_source` states the contracted value sitting
+ *     behind each unreachable source BY NAME, which for this build is a
+ *     permanent, honest line about `regulator` and `layoffs`.
+ *
+ * Computed on read and never stored, so it cannot go stale behind the data.
+ */
+export const bookExposureSchema = z.object({
+  as_of: isoInstant,
+
+  counterparties: z.object({
+    total: z.number().int(),
+    /** Has monitoring_since: on a cadence. */
+    monitored: z.number().int(),
+    /** Entered via lookup and never signed. Contributes no contracted value. */
+    lookup_only: z.number().int(),
+  }),
+
+  /** Sums of deals.annual_value_usd. `tied` is its own line, never a weight. */
+  contracted_value_usd: z.object({
+    total: z.number(),
+    they_pay_us: z.number(),
+    we_pay_them: z.number(),
+    tied: z.number(),
+  }),
+
+  /**
+   * Contracted value grouped by the top tier of the company's live cluster.
+   * `none` is companies with no surfacing signal -- which is a coverage
+   * statement about them, not a clean bill of health.
+   */
+  value_by_top_tier: z.object({
+    tier1: z.number(),
+    tier2: z.number(),
+    tier3: z.number(),
+    none: z.number(),
+  }),
+
+  /** Value whose notice window shuts within `notice_window_days`. */
+  value_notice_window_closing: z.number(),
+  /** Carried so the figure above is self-describing on screen. */
+  notice_window_days: z.number().int(),
+
+  /** Value on counterparties the user marked `substitutability: 'hard'`. */
+  value_hard_to_replace: z.number(),
+
+  /** Concentration, stated rather than scored. Null on an empty book. */
+  largest_counterparty: z.object({
+    company_id: idSchema,
+    canonical_name: z.string().min(1),
+    annual_value_usd: z.number(),
+    /** This counterparty's value as a percentage of contracted_value_usd.total. */
+    share_of_book_pct: z.number(),
+    /** The user's own share_pct, when they gave one. */
+    share_pct: z.number().nullable(),
+  }).nullable(),
+
+  /** See rule 2. The understatement, named. */
+  value_exposure_unknown: z.number(),
+  companies_exposure_unknown: z.number().int(),
+
+  /** See rule 3. Source id -> contracted value behind it. Partial by design. */
+  value_behind_failed_source: z.record(sourceSchema, z.number()),
+
+  /** Verbatim from NOT_COVERED_CATEGORIES. True of every counterparty. */
+  not_covered: z.array(z.string()),
+
+  /**
+   * The honest replacement for a risk score, assembled by CODE from the fields
+   * above -- never by the narrator. No model writes it, so the citation gate
+   * does not apply and the sentence cannot drift between screens.
+   */
+  headline: z.string().min(1),
+}).merge(bookScoped);
+export type BookExposure = z.infer<typeof bookExposureSchema>;

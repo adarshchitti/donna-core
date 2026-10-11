@@ -80,7 +80,7 @@ recompute either.
 | `counterparties.lookup_only` | companies with `lookup` and no `monitoring_since` |
 | `contracted_value_usd.*` | sum `deal.annual_value_usd`, grouped by `deal_class`. `tied` is its own line and never a weight |
 | `value_by_top_tier.tierN` | for each company, find its cluster; sum the value of that company's linked deals under `cluster.top_tier`. Companies with no cluster, or a cluster whose `top_tier` is 0, go to `none` |
-| `value_notice_window_closing` | deals whose notice window shuts within `rules.exposure.notice_window_days` of `today`. Reuse `exposureFor()`'s `notice_days_remaining` rather than redoing the date maths |
+| `value_notice_window_closing` | deals whose `notice_days_remaining` from `exposureFor()` is **at most** `rules.exposure.notice_window_days` -- **INCLUDING a negative value, meaning the window has already shut.** A shut window is worse than a closing one, not better: the chance to exit on notice is gone, so excluding it would understate the book at exactly the moment it matters most. Reuse `exposureFor()`'s `notice_days_remaining` rather than redoing the date maths. Note this is deliberately a different test from the one `exposureFor()` uses for its own notice BUMP, which is a bounded `0 <= r < N` because a bonus for an already-shut window would make no sense; the rollup is reporting value at stake, not scoring a deal |
 | `notice_window_days` | the threshold used, carried so the figure is self-describing on screen |
 | `value_hard_to_replace` | deals with `substitutability: 'hard'` |
 | `largest_counterparty` | the company with the largest summed linked-deal value. `share_of_book_pct` is its value over `contracted_value_usd.total`, 2dp. `share_pct` is the user's own field or null. **Null on an empty book** |
@@ -147,8 +147,19 @@ Tests in `packages/logic/src/exposure-book/rollup.test.ts`:
 - The headline passes `findForbidden()` and omits zero-figure sentences.
 - Every returned value `bookExposureSchema.parse()`s.
 
-Plus: `npx vitest run` stays green at **466 passing or more**, and
-`npx tsc -b` is clean.
+Plus: `npx vitest run` shows **no new failures**, and
+`npx tsc -b packages/logic packages/store` is clean.
+
+**Two things about this repo's checks that will otherwise waste your time.**
+There is no root `tsconfig.json`, so a bare `npx tsc -b` fails on a missing
+config and tells you nothing -- typecheck the packages you touched, by name.
+And `packages/contracts/src/conformance.test.ts` reads
+`/Users/adarshc/Desktop/donna-collectors` by ABSOLUTE PATH, so the cross-repo
+drift tests only pass on a machine with that sibling checkout. On any other
+machine they fail and the suite reads ~436 rather than ~466. **Those failures
+are pre-existing and not yours** -- do not try to fix them and do not let them
+stop you committing. Compare against the count you saw before your change, not
+against a number in this brief.
 
 ---
 

@@ -123,7 +123,11 @@ export function outcomeFor(
     status: 'resolved',
     company_id: randomUUID(),
     canonical_name: chosen.canonical_name,
-    jurisdiction: chosen.jurisdiction,
+    // The DEAL's country, not the candidate's sub-jurisdiction. Track C's
+    // linkDeal throws unless company.jurisdiction === deal.country, and a
+    // candidate from OpenCorporates carries `US_VA` where the deal says `US`.
+    // The precise registration still travels in registry_id and the reason.
+    jurisdiction: deal.country,
     registry_id: chosen.registry_id,
     // The name as the user typed it is kept as an alias, never as the canonical
     // name: Track C 409s on a canonical_name change, which would break the

@@ -5,3 +5,5 @@ export * from './resolution.js';
 export * from './loop.js';
 export * from './collector-runner.js';
 export * from './resolve-pending.js';
+export * from './candidates.js';
+export * from './judge.js';

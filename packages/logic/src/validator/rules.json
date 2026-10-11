@@ -186,7 +186,55 @@
           ],
           "item_types": [
             "status"
-          ]
+          ],
+          "item_fields": {
+            "value": [
+              "dissolved",
+              "administratively dissolved",
+              "cancelled",
+              "canceled",
+              "revoked",
+              "forfeited",
+              "expired",
+              "inactive",
+              "suspended",
+              "struck off",
+              "terminated",
+              "dead",
+              "withdrawn",
+              "merged out"
+            ]
+          }
+        },
+        {
+          "sources": [
+            "registry"
+          ],
+          "kinds": [
+            "altered",
+            "removed"
+          ],
+          "item_types": [
+            "status"
+          ],
+          "item_fields": {
+            "status": [
+              "dissolved",
+              "administratively dissolved",
+              "cancelled",
+              "canceled",
+              "revoked",
+              "forfeited",
+              "expired",
+              "inactive",
+              "suspended",
+              "struck off",
+              "terminated",
+              "dead",
+              "withdrawn",
+              "merged out"
+            ]
+          }
         }
       ]
     },
@@ -353,7 +401,44 @@
             "licence",
             "license",
             "permit"
-          ]
+          ],
+          "item_fields": {
+            "status": [
+              "lapsed",
+              "expired",
+              "revoked",
+              "suspended",
+              "surrendered",
+              "cancelled",
+              "canceled",
+              "terminated",
+              "inactive"
+            ]
+          }
+        },
+        {
+          "sources": [
+            "regulator",
+            "registry"
+          ],
+          "item_types": [
+            "licence",
+            "license",
+            "permit"
+          ],
+          "item_fields": {
+            "value": [
+              "lapsed",
+              "expired",
+              "revoked",
+              "suspended",
+              "surrendered",
+              "cancelled",
+              "canceled",
+              "terminated",
+              "inactive"
+            ]
+          }
         }
       ]
     },

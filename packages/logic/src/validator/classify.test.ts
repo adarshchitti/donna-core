@@ -199,13 +199,19 @@ describe('the collectors\' own item vocabulary classifies', () => {
     type: string;
     tier: number;
   }[] = [
-    { source: 'registry', kind: 'altered', item_type: 'status', type: 'registry_status_inactive', tier: 1 },
+    {
+      source: 'registry', kind: 'altered', item_type: 'status',
+      item: { value: 'dissolved' }, type: 'registry_status_inactive', tier: 1,
+    },
     { source: 'registry', kind: 'removed', item_type: 'officer', type: 'exec_departure', tier: 2 },
     { source: 'registry', kind: 'added', item_type: 'officer', type: 'routine_filing', tier: 0 },
     { source: 'registry', kind: 'added', item_type: 'filing', type: 'routine_filing', tier: 0 },
     { source: 'registry', kind: 'altered', item_type: 'address', type: 'address_update', tier: 0 },
     { source: 'court', kind: 'added', item_type: 'case', type: 'litigation', tier: 2 },
-    { source: 'regulator', kind: 'altered', item_type: 'licence', type: 'licence_lapse', tier: 2 },
+    {
+      source: 'regulator', kind: 'altered', item_type: 'licence',
+      item: { status: 'revoked' }, type: 'licence_lapse', tier: 2,
+    },
     { source: 'layoffs', kind: 'added', item_type: 'warn_notice', type: 'layoff', tier: 2 },
     {
       source: 'executives', kind: 'added', item_type: 'exec_move',
@@ -242,5 +248,67 @@ describe('the collectors\' own item vocabulary classifies', () => {
     );
     expect(appointment.title.toLowerCase()).not.toContain('departure');
     expect(appointment.base_tier).toBe(0);
+  });
+});
+
+/**
+ * The two rules that used to misfire. Both matched ANY change of their item
+ * type and printed distress: a reinstatement read as "Registry status no
+ * longer active", a renewal as "Licence lapsed". Now the new item's own value
+ * must be on the bad-value list. A status that stays good falls to the tier 0
+ * routine rule -- visible, not vanished.
+ */
+describe('value-constrained rules: only the bad values alert', () => {
+  const tierAndType = (
+    source: Source,
+    kind: 'added' | 'removed' | 'altered',
+    item_type: string,
+    item: Record<string, unknown>,
+  ) => {
+    const { signals } = upsertSignals({
+      book_id: BOOK,
+      company: co,
+      changes: [change({ source, kind, item_type, item })],
+      rules,
+    });
+    return signals[0]!;
+  };
+
+  it('a reinstatement does NOT reach tier 1', () => {
+    for (const value of ['reinstated', 'active', 'ACTIVE', 'good standing', 'active - reinstated']) {
+      const signal = tierAndType('registry', 'altered', 'status', { value });
+      expect(signal.type, value).not.toBe('registry_status_inactive');
+      expect(signal.tier, value).toBeLessThan(1);
+    }
+  });
+
+  it('a reinstatement is a tier-0 routine entry, not silence', () => {
+    const signal = tierAndType('registry', 'altered', 'status', { value: 'reinstated' });
+    expect(signal.type).toBe(rules.fallback_signal_type.type);
+    expect(signal.tier).toBe(0);
+  });
+
+  it('a dissolution DOES reach tier 1, on either field spelling', () => {
+    for (const item of [{ value: 'dissolved' }, { status: 'administratively dissolved' }]) {
+      const signal = tierAndType('registry', 'altered', 'status', item);
+      expect(signal.type, JSON.stringify(item)).toBe('registry_status_inactive');
+      expect(signal.tier, JSON.stringify(item)).toBe(1);
+    }
+  });
+
+  it('a licence renewal does NOT reach tier 2', () => {
+    for (const status of ['renewed', 'active', 'current', 'reinstated']) {
+      const signal = tierAndType('regulator', 'altered', 'licence', { status });
+      expect(signal.type, status).not.toBe('licence_lapse');
+      expect(signal.tier, status).toBeLessThan(2);
+    }
+  });
+
+  it('a revocation DOES reach tier 2, on either field spelling', () => {
+    for (const item of [{ status: 'revoked' }, { value: 'suspended' }]) {
+      const signal = tierAndType('regulator', 'altered', 'licence', item);
+      expect(signal.type, JSON.stringify(item)).toBe('licence_lapse');
+      expect(signal.tier, JSON.stringify(item)).toBe(2);
+    }
   });
 });
